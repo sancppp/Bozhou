@@ -117,7 +117,7 @@ struct SnippetsPage: View {
                                 if !model.sessions.filter({ !$0.ended }).isEmpty {
                                     Menu("填入终端") {
                                         ForEach(model.sessions.filter { !$0.ended }) { session in
-                                            Button(session.title) { model.activeSession = session.id; session.send(snippet.command) }
+                                            Button(session.displayName.full) { model.activeSession = session.id; session.send(snippet.command) }
                                         }
                                     }.fixedSize()
                                 }
@@ -158,10 +158,11 @@ struct SnippetEditor: View {
 }
 
 struct InteractionDetail: View {
+    @EnvironmentObject var model: AppModel
     let item: Interaction
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack { Text(item.hostName).font(.headline); Spacer(); Text(item.date, format: .dateTime).font(.caption).foregroundStyle(.secondary) }
+            HStack { HostNameLabel(model.displayName(for: item)).font(.headline); Spacer(); Text(item.date, format: .dateTime).font(.caption).foregroundStyle(.secondary) }
             HStack { Text(item.shell); Spacer(); Text(item.exitCode.map { "退出状态 \($0)" } ?? "未完成 / 手动快照") }
                 .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
             Text(item.command).font(.system(size: 13, weight: .semibold, design: .monospaced)).textSelection(.enabled)
@@ -193,12 +194,12 @@ struct PinsPage: View {
                 HSplitView {
                     VStack {
                         TextField("搜索收藏", text: $search).textFieldStyle(.roundedBorder)
-                        List(model.pins.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) }, selection: $selection) { pin in
+                        List(model.pins.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || model.displayName(for: $0.interaction).full.localizedCaseInsensitiveContains(search) }, selection: $selection) { pin in
                             HStack {
                                 VStack(alignment: .leading, spacing: 5) {
                                     Text(pin.title).font(.system(size: 12, weight: .medium)).lineLimit(2)
-                                    Text(pin.interaction.hostName + " · " + pin.interaction.date.formatted(date: .abbreviated, time: .shortened))
-                                        .font(.caption2).foregroundStyle(.secondary)
+                                    HostNameLabel(model.displayName(for: pin.interaction)).font(.caption2).foregroundStyle(.secondary)
+                                    Text(pin.interaction.date.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary)
                                 }
                                 Spacer(minLength: 4)
                                 Button {
@@ -240,7 +241,7 @@ struct PinsPage: View {
         // A fence longer than any content run preserves embedded Markdown fences.
         let longest = (item.command + item.output).split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0
         let fence = String(repeating: "`", count: max(3, longest + 1))
-        let text = "# \(item.hostName)\n\n时间：\(item.date.formatted())\n\n\(item.shell)\n\n\(fence)sh\n\(item.command)\n\(fence)\n\n\(fence)text\n\(item.output)\n\(fence)\n"
+        let text = "# \(model.displayName(for: item).full)\n\n时间：\(item.date.formatted())\n\n\(item.shell)\n\n\(fence)sh\n\(item.command)\n\(fence)\n\n\(fence)text\n\(item.output)\n\(fence)\n"
         model.perform { try text.write(to: url, atomically: true, encoding: .utf8) }
     }
 }
@@ -262,10 +263,11 @@ struct HistoryPage: View {
             } else {
                 TextField("搜索命令或主机", text: $search).textFieldStyle(.roundedBorder)
                 HSplitView {
-                    List(model.history.filter { search.isEmpty || $0.command.localizedCaseInsensitiveContains(search) || $0.hostName.localizedCaseInsensitiveContains(search) }, selection: $selection) { item in
+                    List(model.history.filter { search.isEmpty || $0.command.localizedCaseInsensitiveContains(search) || model.displayName(for: $0).full.localizedCaseInsensitiveContains(search) }, selection: $selection) { item in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(item.command).font(.system(size: 12, design: .monospaced)).lineLimit(2)
-                            Text(item.hostName + " · " + item.date.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary)
+                            HostNameLabel(model.displayName(for: item)).font(.caption2).foregroundStyle(.secondary)
+                            Text(item.date.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary)
                         }.padding(.vertical, 5).tag(item.id).contextMenu { Button("收藏交互") { model.pin(item) } }
                     }.frame(minWidth: 220, idealWidth: 280, maxWidth: 350).scrollContentBackground(.hidden)
                     if let item = model.history.first(where: { $0.id == selection }) {
@@ -353,7 +355,7 @@ struct PreferencesView: View {
                 }
                 Section("连接") {
                     Toggle("连接中断后自动重连", isOn: $model.settings.autoReconnect)
-                    Text("最多重试 5 次。可随时停止或手动重连；重连会新建远程 shell，已记录的交互保留。").font(.caption).foregroundStyle(.secondary)
+                    Text("依次等待 5、10、30、60、120 秒重试，五次失败后需手动重连。可随时停止；重连会新建远程 shell，已记录的交互保留。").font(.caption).foregroundStyle(.secondary)
                 }
                 Section("历史与通知") {
                     Toggle("保存命令历史与输出", isOn: $model.settings.saveHistory)

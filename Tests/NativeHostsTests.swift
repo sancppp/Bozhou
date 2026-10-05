@@ -44,6 +44,9 @@ struct NativeHostsTests {
         }
         key(125)
         precondition(table.selectedRow == 0)
+        key(49)
+        precondition(!app.windows.contains { $0.identifier?.rawValue == "BozhouHostPreview" && $0.isVisible },
+                     "Space on a folder must not open a host preview")
         key(124)
         precondition(table.numberOfRows == 2)
         key(124)
@@ -56,6 +59,28 @@ struct NativeHostsTests {
         precondition(table.rows[table.selectedRow].host?.name == "主 SP-2")
         key(126)
         precondition(table.rows[table.selectedRow].host?.name == "主 SP-1")
+        key(49)
+        let preview = app.windows.first { $0.identifier?.rawValue == "BozhouHostPreview" && $0.isVisible } as! HostPreviewPanel
+        precondition(preview.title == "主 SP-1(127.0.0.1)")
+        precondition(model.editorHost == nil && model.sessions.isEmpty, "Quick Look must not edit or connect")
+        func previewKey(_ code: UInt16) {
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                        windowNumber: preview.windowNumber, context: nil, characters: "",
+                                        charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
+            preview.sendEvent(event); settle()
+        }
+        previewKey(125)
+        precondition(preview.title == "主 SP-2(127.0.0.2)" && table.rows[table.selectedRow].host?.name == "主 SP-2")
+        previewKey(126)
+        previewKey(49)
+        precondition(!preview.isVisible)
+        window.makeFirstResponder(table)
+        key(49)
+        precondition(preview.isVisible)
+        previewKey(53)
+        precondition(!preview.isVisible)
+        window.makeFirstResponder(table)
+        print("PASS Space opens a read-only preview, arrows follow selection, Space/Esc dismiss, folders are ignored")
         key(123)
         precondition(table.rows[table.selectedRow].folder == "NAT/成都/azc")
         key(123)
@@ -218,6 +243,59 @@ struct NativeHostsTests {
         model.error = nil
         try assertExpanded(moved.subtracting(["生产"]))
         print("PASS rename/move remap descendants without touching prefix siblings; delete clears saved state")
+        try testFeatureLayouts(model: model, window: window)
         window.orderOut(nil)
+    }
+
+    @MainActor static func testFeatureLayouts(model: AppModel, window: NSWindow) throws {
+        var jump = Host(name: "ecs-shared-nat_proxy", address: "127.0.0.1", group: "测试/华北/可用区一")
+        jump.systemProfile = SystemProfile(operatingSystem: "Linux", kernel: "6.1", cpu: "4 vCPU", memory: "8 GiB",
+                                          hostname: "iv-yet1b78rggygp2fbqnpj")
+        try model.saveHost(jump)
+        var target = Host(name: "服务节点", address: "127.0.0.2", group: jump.group)
+        target.jumpHosts = [jump.id]
+        let editor = NSHostingView(rootView: HostEditor(host: target).environmentObject(model))
+        window.contentView = editor
+        window.setContentSize(NSSize(width: 540, height: 740))
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.2)); window.contentView?.layoutSubtreeIfNeeded() }
+        func capture(_ name: String) throws {
+            settle()
+            guard let content = window.contentView,
+                  let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
+            content.cacheDisplay(in: content.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: ".runtime/logs/v1.0.2-\(name).png"))
+        }
+        try capture("host-editor")
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        if let scroll = descendants(editor).compactMap({ $0 as? NSScrollView }).first {
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: 480))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            try capture("jump-editor")
+        }
+        window.contentView = NSHostingView(rootView:
+            HostPicker(title: "添加跳板", hosts: [jump], selection: .constant(jump.id))
+                .padding(20).frame(width: 360).background(Color(nsColor: .windowBackgroundColor)))
+        window.setContentSize(NSSize(width: 360, height: 90))
+        try capture("host-picker")
+        // Keep these fixtures local; no SSH is launched for the header/layout assertions.
+        let directory = model.paths.sessions.appendingPathComponent("header")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let launch = SSHLaunch(executable: "/bin/sleep", arguments: ["30"], environment: [:], directory: directory, token: "header")
+        let session = TerminalSession(host: jump, launch: launch, settings: AppSettings(), directory: model.workingDirectory)
+        model.addSession(session)
+        let pane = NSHostingView(rootView: TerminalPane(session: session).environmentObject(model))
+        window.contentView = pane
+        window.setContentSize(NSSize(width: 440, height: 320))
+        try capture("terminal-header")
+        precondition(pane.bounds.width == 440, "Long host metadata must fit a narrow split pane")
+        precondition(session.displayName.full.contains("iv-yet1b78rggygp2fbqnpj"))
+        var item = Interaction(hostID: jump.id, hostName: jump.name, sessionID: session.id, shell: "bash", command: "pwd")
+        precondition(model.displayName(for: item).hostname == jump.systemProfile?.hostname, "Old history must resolve the host by ID")
+        item.hostname = "historical-host"
+        precondition(model.displayName(for: item).hostname == "historical-host", "Recorded hostname must take precedence over current host metadata")
+        model.pin(item)
+        precondition(model.pins.first?.interaction.hostname == "historical-host")
+        model.closeAll()
+        print("PASS jump editor and 440-pt terminal header render long names; historical host identity is preserved")
     }
 }

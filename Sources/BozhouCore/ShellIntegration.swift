@@ -45,7 +45,7 @@ public enum ShellIntegration {
         export BOZHOU_SHELL="$bz_shell"
         case "$bz_shell" in
           */bash)
-            exec "$bz_shell" --rcfile /dev/fd/3 -i 3<<'BOZHOU_\(token)'
+            "$bz_shell" --rcfile /dev/fd/3 -i 3<<'BOZHOU_\(token)'
         \(bash(token: token))
         BOZHOU_\(token)
             ;;
@@ -62,10 +62,13 @@ public enum ShellIntegration {
             cat >"$bz_dir/.zshrc" <<'BOZHOU_\(token)'
         \(zsh(token: token))
         BOZHOU_\(token)
-            ZDOTDIR="$bz_dir" exec "$bz_shell" -i
+            ZDOTDIR="$bz_dir" "$bz_shell" -i
             ;;
-          *) printf '\\033]777;bozhou;\(token);ready;other\\007'; exec "$bz_shell" -i ;;
+          *) printf '\\033]777;bozhou;\(token);ready;other\\007'; "$bz_shell" -i ;;
         esac
+        bz_code=$?
+        printf '\\033]777;bozhou;\(token);exit;%s\\007' "$bz_code"
+        exit "$bz_code"
         """
         return "exec /bin/sh -c " + shellQuote(script)
     }
@@ -137,11 +140,15 @@ public final class InteractionRecorder {
     private var active: Interaction?
     private let hostID: UUID?
     private let hostName: String
+    private var hostname: String?
     private let sessionID: UUID
+    public private(set) var shellExitCode: Int?
     public private(set) var recentOutput: [UInt8] = []
-    public init(token: String, hostID: UUID?, hostName: String, sessionID: UUID, maximumOutput: Int = 256 * 1024) {
+    public init(token: String, hostID: UUID?, hostName: String, sessionID: UUID, maximumOutput: Int = 256 * 1024,
+                hostname: String? = nil) {
         prefix = Array("\u{1b}]777;bozhou;\(token);".utf8)
         self.hostID = hostID; self.hostName = hostName; self.sessionID = sessionID; self.maximumOutput = maximumOutput
+        self.hostname = hostname
     }
 
     /// Returns terminal display bytes with our private markers removed.
@@ -192,7 +199,13 @@ public final class InteractionRecorder {
     }
     private func marker(_ fields: [String]) {
         guard let kind = fields.first else { return }
-        if kind == "system", fields.count == 2, let profile = SystemProbe.parse(fields[1]) { onSystemProfile?(profile) }
+        if kind == "system", fields.count == 2, let profile = SystemProbe.parse(fields[1]) {
+            hostname = profile.hostname ?? hostname
+            onSystemProfile?(profile)
+        }
+        if kind == "exit", fields.count == 2, let code = Int(fields[1]), (0...255).contains(code) {
+            shellExitCode = code
+        }
         if kind == "ready", fields.count >= 2 { onReady?(fields[1]) }
         if kind == "command", fields.count >= 3, let command = fields[2].removingPercentEncoding {
             if var current = active {
@@ -201,7 +214,7 @@ public final class InteractionRecorder {
             }
             active = Interaction(hostID: hostID, hostName: hostName, sessionID: sessionID,
                                  shell: fields[1].hasPrefix("/") ? "#!\(fields[1])" : "#!/bin/\(fields[1])",
-                                 command: command)
+                                 command: command, hostname: hostname)
             output.removeAll()
         }
         if kind == "end", var current = active {

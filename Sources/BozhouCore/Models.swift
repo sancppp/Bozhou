@@ -163,6 +163,7 @@ public struct Interaction: Record, Equatable {
     public var id = UUID()
     public var hostID: UUID?
     public var hostName: String
+    public var hostname: String?
     public var sessionID: UUID
     public var date: Date
     public var shell: String
@@ -171,8 +172,10 @@ public struct Interaction: Record, Equatable {
     public var exitCode: Int?
     public var truncated: Bool
     public init(hostID: UUID? = nil, hostName: String, sessionID: UUID, shell: String,
-                command: String, output: String = "", exitCode: Int? = nil, date: Date = Date(), truncated: Bool = false) {
+                command: String, output: String = "", exitCode: Int? = nil, date: Date = Date(), truncated: Bool = false,
+                hostname: String? = nil) {
         self.hostID = hostID; self.hostName = hostName; self.sessionID = sessionID
+        self.hostname = hostname
         self.shell = shell; self.command = command; self.output = output
         self.exitCode = exitCode; self.date = date; self.truncated = truncated
     }

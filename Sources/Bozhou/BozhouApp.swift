@@ -51,6 +51,12 @@ struct BozhouApp: App {
                 Button("清除终端屏幕") { model.commandSession?.terminal.clearScreen() }
                     .keyboardShortcut("k").disabled(model.activeSession == nil)
             }
+            CommandGroup(after: .toolbar) {
+                Button("放大终端字体") { model.commandSession?.changeFontSize(by: 1) }
+                    .keyboardShortcut("=").disabled(model.activeSession == nil)
+                Button("缩小终端字体") { model.commandSession?.changeFontSize(by: -1) }
+                    .keyboardShortcut("-").disabled(model.activeSession == nil)
+            }
             CommandMenu("连接") {
                 Button("重新连接") { model.commandSession?.reconnect() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
@@ -58,7 +64,7 @@ struct BozhouApp: App {
                 Button("关闭当前会话") { if let id = model.commandSession?.id { model.closeSession(id) } }.keyboardShortcut("w", modifiers: [.command, .shift]).disabled(model.activeSession == nil)
                 Button("收藏最近交互") { if let session = model.commandSession { model.pin(session.recent.first ?? session.snapshot()) } }.keyboardShortcut("p", modifiers: [.command, .shift]).disabled(model.activeSession == nil)
                 Divider()
-                ForEach(model.hosts.filter(\.favorite)) { host in Button(host.name) { model.connect(host) } }
+                ForEach(model.hosts.filter(\.favorite)) { host in Button(host.displayName.full) { model.connect(host) } }
             }
             CommandGroup(replacing: .appSettings) {
                 Button("设置…") { model.activeSession = nil; model.page = .settings }.keyboardShortcut(",")
@@ -96,7 +102,7 @@ struct StatusMenu: View {
         Text("\(model.sessions.filter { !$0.ended }.count) 个活动会话")
         Divider()
         ForEach(model.hosts.filter(\.favorite)) { host in
-            Button(host.name) { openWindow(id: "main"); model.connect(host); NSApp.activate(ignoringOtherApps: true) }
+            Button(host.displayName.full) { openWindow(id: "main"); model.connect(host); NSApp.activate(ignoringOtherApps: true) }
         }
         Divider()
         Button("退出泊舟") { NSApp.terminate(nil) }

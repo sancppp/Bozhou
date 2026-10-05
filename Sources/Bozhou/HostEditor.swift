@@ -65,7 +65,8 @@ struct HostEditor: View {
                     ForEach(Array(host.jumpHosts.enumerated()), id: \.element) { index, id in
                         HStack {
                             Text("\(index + 1)").font(.caption).foregroundStyle(.secondary).frame(width: 20)
-                            Text(model.hosts.first { $0.id == id }?.name ?? "已删除的主机")
+                            if let jump = model.hosts.first(where: { $0.id == id }) { HostNameLabel(jump.displayName) }
+                            else { Text("已删除的主机") }
                             Spacer()
                             Button {
                                 guard let current = host.jumpHosts.firstIndex(of: id), current > 0 else { return }
@@ -75,12 +76,9 @@ struct HostEditor: View {
                         }
                     }
                     HStack {
-                        Picker("添加跳板", selection: $jumpSelection) {
-                            Text("选择已保存的主机").tag(nil as UUID?)
-                            ForEach(model.hosts.filter { $0.id != host.id && !host.jumpHosts.contains($0.id) }) { item in
-                                Text(item.name).tag(Optional(item.id))
-                            }
-                        }
+                        HostPicker(title: "添加跳板",
+                                   hosts: model.hosts.filter { $0.id != host.id && !host.jumpHosts.contains($0.id) },
+                                   selection: $jumpSelection)
                         Button("添加") {
                             if let id = jumpSelection { host.jumpHosts.append(id); jumpSelection = nil }
                         }.disabled(jumpSelection == nil)

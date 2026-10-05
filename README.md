@@ -7,7 +7,7 @@
 <p align="center"><code>macOS 14+</code> · <code>Apple Silicon</code> · <code>SwiftUI</code> · <code>系统 OpenSSH</code> · <code>MIT</code></p>
 
 <p align="center">
-  <a href="https://github.com/sancppp/Bozhou/releases">Releases</a> ·
+  <a href="#安装">安装</a> ·
   <a href="#快速上手">快速上手</a> ·
   <a href="#使用示例">使用示例</a> ·
   <a href="#开发与贡献">参与开发</a>
@@ -32,7 +32,7 @@
 
 ### 从 Releases 安装
 
-1. 若 [Releases](https://github.com/sancppp/Bozhou/releases) 已提供公开发布包，下载 `Bozhou-<版本>-macOS-arm64.zip`、`SHA256SUMS` 和 `MD5SUMS`；若尚无公开包，请使用下方的源码安装方式。
+1. 从仓库的 Releases 页面下载 `Bozhou-<版本>-macOS-arm64.zip`、`SHA256SUMS` 和 `MD5SUMS`。
 2. 在下载目录校验发布包，优先使用 SHA-256；MD5 仅用于兼容其他完整性检查流程：
 
 ```sh
@@ -47,11 +47,11 @@ md5 -r Bozhou-*-macOS-arm64.zip | diff - MD5SUMS
 
 ### 从源码安装
 
-需要包含 macOS 26 SDK 的 Xcode 26 或更新工具链、Git 和 Python 3.10+。
+需要包含 macOS 26 SDK 的 Xcode 26 或更新工具链、Git 和 Python 3.10+。从仓库页面复制克隆地址并克隆项目后，在项目目录运行：
 
 ```sh
-git clone --recurse-submodules https://github.com/sancppp/Bozhou.git
 cd Bozhou
+git submodule update --init --recursive
 bash Scripts/install.sh
 open "$HOME/Applications/泊舟.app"
 ```
@@ -66,7 +66,11 @@ open "$HOME/Applications/泊舟.app"
 4. 点击「保存并连接」，通过可信渠道核对首次出现的服务器指纹。
 5. 在终端中打开交互侧栏保存重要操作，或返回工作空间进入 SFTP、历史和收藏。
 
-「快捷命令」只会填入终端，不会自动执行。自动重连最多尝试 5 次，间隔为 2、4、8、16、30 秒；重连会创建新的远端 Shell，不会重放命令。
+「快捷命令」只会填入终端，不会自动执行。自动重连最多尝试 5 次，间隔为 5、10、30、60、120 秒，五次失败后需要手动发起；重连会创建新的远端 Shell，不会重放命令。
+
+在主机列表或网格中选中主机后，按空格快速查看基本信息，用 ↑↓ 切换，空格或 Esc 关闭。跳板、会话、历史和收藏使用 `名称(hostname)` 标识主机，空间不足时缩为 `名称(...末六位)`，悬停可查看完整名称；尚未采集 hostname 时使用连接地址。
+
+终端页头同时显示连接状态、用户名、地址端口、文件夹路径和 hostname。用 `⌘−` / `⌘=` 缩小、放大当前焦点窗格的字体（10–36 pt）；缩放在当前会话内保留，设置中的字号决定新会话的默认值。输入 `exit` 或发送 EOF，Shell 退出后会自动关闭对应标签或分屏窗格。
 
 ## 使用示例
 
@@ -111,6 +115,8 @@ open "$HOME/Applications/泊舟.app"
 | `⌘⇧R` / `⌘⇧W` | 重连 / 关闭当前会话 |
 | `⌘⇧P` | 收藏最近交互 |
 | `⌘K` | 清屏并清除滚动缓冲，保留交互记录 |
+| `⌘−` / `⌘=`（或 `⌘+`） | 缩小 / 放大当前终端字体 |
+| `空格` / `Esc` | 在主机页面快速查看 / 关闭预览 |
 | `⌘C` / `⌘V` / `Ctrl-C` | 复制 / 粘贴 / 中断 |
 | `⌘,` | 打开设置 |
 
@@ -124,7 +130,7 @@ open "$HOME/Applications/泊舟.app"
 
 ## 开发与贡献
 
-欢迎提交可复现的 [Issue](https://github.com/sancppp/Bozhou/issues) 和范围清晰的 Pull Request。开发约定、测试隔离方式与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)，实现模块和关键不变量见 [AGENT.md](AGENT.md)。
+欢迎提交可复现的 Issue 和范围清晰的 Pull Request。开发约定、测试隔离方式与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)，实现模块和关键不变量见 [AGENT.md](AGENT.md)。
 
 <details>
 <summary><strong>从源码构建与运行测试</strong></summary>

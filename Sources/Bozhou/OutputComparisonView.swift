@@ -2,6 +2,7 @@ import SwiftUI
 import BozhouCore
 
 struct OutputComparisonView: View {
+    @EnvironmentObject var model: AppModel
     let before: Interaction
     let after: Interaction
     @State private var diff: OutputDiff?
@@ -33,7 +34,7 @@ struct OutputComparisonView: View {
     }
     private func summary(_ item: Interaction, label: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("\(label) · \(item.hostName)").font(.subheadline.weight(.medium))
+            HStack { Text(label); HostNameLabel(model.displayName(for: item)) }.font(.subheadline.weight(.medium))
             Text(item.command).font(.system(size: 11, design: .monospaced)).lineLimit(3).textSelection(.enabled)
             Text("\(item.date.formatted()) · 退出 \(item.exitCode.map(String.init) ?? "未知")")
                 .font(.caption2).foregroundStyle(.secondary)

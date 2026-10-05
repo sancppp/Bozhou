@@ -36,6 +36,7 @@ python3 --version
 | `AppModel.swift` | MainActor 状态、数据操作、连接与会话路由 |
 | `HostEditor.swift`、`StableBinding.swift` | 主机编辑；可增删数组的控件绑定按 ID 查找 |
 | `HostsPage.swift`、`HostListView.swift` | 文件夹与主机视图；NSTableView 即时选中及双击 |
+| `HostQuickLook.swift`、`HostNameLabel.swift`、`HostDisplayName.swift` | 空格只读预览、名称与 hostname 的宽度适配展示 |
 | `RootView.swift` | 单行工具栏、工作空间、标签和分屏 |
 | `TerminalSession.swift` | PTY 生命周期、录制、重连；`TerminalSurface` 挂载原生终端 |
 | `NativeInputTerminalView.swift` | 中文输入法组合文本，提交前不发送到远端 |
@@ -74,14 +75,18 @@ sequenceDiagram
 - 跳板行的移动和删除在执行时按 ID 找当前位置，不捕获旧下标。
 - 顶部保持单行平面工具栏、上下居中；避免重新引入液态玻璃背景和第二层 Header。
 - 自定义主机名称与实际 hostname 均保留；hostname 同时用于展示、搜索和「登录与系统信息」。
+- 名称展示优先完整 `名称(hostname)`，宽度不足使用 hostname 末六位；悬停保留完整文本。未采集时回退连接地址；历史与收藏持久化可选 hostname 快照，旧记录按 hostID 回查。
+- 主机空格预览不连接、不编辑；空格/Esc 关闭，方向键同步选择，离开主机页关闭预览。
 - 主机树展开状态保存在当前工作空间的 `AppSettings.expandedHostGroups`，通过 `AppModel.setHostGroupExpanded` 即时持久化，切页和重启后恢复。收起父目录保留子目录状态，搜索自动展开不改写记录；重命名/移动和删除须在文件夹事务中同步更新路径。
 - 默认浅色终端背景 `#F1F2F4`，深色 `#0E141F`；不能恢复纯白底。颜色即时作用于已有终端并持久化。
 - 分屏命令作用于焦点窗格；PTY 尺寸与视图同步。
+- `⌘−` / `⌘=` / `⌘+` 缩放焦点终端（10–36 pt），会话内保留；显式修改设置字号重置临时缩放。快捷键不得发往远端。
 
 ### 连接和异步生命周期
 
 - `TerminalSession.start()` 必须拒绝已关闭或已结束的会话，防止视图排队的迟到启动创建后台进程。
 - 每次 SSH 重连重新构建配置和 PTY；旧进程回调用 `source === terminal` 等条件排除。不得重放用户命令。
+- 重连等待依次为 5、10、30、60、120 秒，用尽后由用户手动发起。Shell 外层临时启动脚本在退出时发送带会话 token 的完成标记，区分 `exit 255` 与传输失败；收到进程结束后先保存最后交互，再关闭标签并修正分屏/焦点。
 - SFTP 取消关闭传输；连接、目录、进度和错误回调均要验证 generation，不能让旧任务覆盖新任务状态。
 - SFTPTransport 的启动与取消通过锁协调；管道 IO 不进入主线程，帧大小、超时、取消与 SIGPIPE 保护不可删除。
 - 服务器间传输使用有界内存、目标临时文件及最终 rename；失败尽力清理并告知残留路径，不覆盖已有文件。

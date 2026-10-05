@@ -102,7 +102,7 @@ struct RootView: View {
             if model.sessions.count > 2 {
                 Menu {
                     ForEach(model.sessions) { session in
-                        Button(session.title) { model.activeSession = session.id; model.splitSession = nil }
+                        Button(session.displayName.full) { model.activeSession = session.id; model.splitSession = nil }
                     }
                 } label: { Label("所有会话", systemImage: "rectangle.stack").frame(height: 32) }
                     .menuStyle(.borderlessButton).help("切换会话")
@@ -116,7 +116,7 @@ struct RootView: View {
                             Button("新建本地终端") { split(vertical: vertical) { model.localTerminal() } }
                             if let host = active.host { Button("新建当前主机连接") { split(vertical: vertical) { model.connect(host) } } }
                             ForEach(model.sessions.filter { $0.id != active.id }) { other in
-                                Button(other.title) { model.splitVertical = vertical; model.splitSession = other.id }
+                                Button(other.displayName.full) { model.splitVertical = vertical; model.splitSession = other.id }
                             }
                         }
                     }
@@ -136,9 +136,9 @@ struct RootView: View {
     private func sessionTab(_ session: TerminalSession) -> some View {
         HStack(spacing: 0) {
             Button { model.activeSession = session.id; model.splitSession = nil } label: {
-                Label(session.title, systemImage: "terminal").labelStyle(.titleAndIcon).lineLimit(1)
-                    .frame(minWidth: 72, maxWidth: 150).padding(.horizontal, 8).frame(height: 32).contentShape(Rectangle())
-            }.buttonStyle(.plain).help(session.title)
+                HStack(spacing: 4) { Image(systemName: "terminal"); HostNameLabel(session.displayName) }
+                    .frame(minWidth: 72, maxWidth: 240).padding(.horizontal, 8).frame(height: 32).contentShape(Rectangle())
+            }.buttonStyle(.plain).help(session.displayName.full)
             Button { model.closeSession(session.id) } label: {
                 Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
                     .frame(width: 22, height: 32).contentShape(Rectangle())

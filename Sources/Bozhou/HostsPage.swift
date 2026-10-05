@@ -10,6 +10,8 @@ struct HostsPage: View {
     @State private var folderPath = ""
     @State private var renaming: String?
     @FocusState private var searchFocused: Bool
+    @FocusState private var gridFocused: Bool
+    @StateObject private var preview = HostPreviewController()
 
     // Search reveals matches temporarily without changing the saved folder state.
     private var expanded: Set<String> {
@@ -43,6 +45,7 @@ struct HostsPage: View {
         return result
     }
     private var selectedRow: HostRow? { rows.first { $0.id == selection } }
+    private var selectedHost: Host? { model.hosts.first { "h:" + $0.id.uuidString == selection } }
     private var currentFolders: [String] { model.groups.filter { HostTree.parent($0) == model.selectedGroup }.sorted() }
     private var gridHosts: [Host] { model.filteredHosts.filter { !model.search.isEmpty || $0.group == model.selectedGroup } }
 
@@ -91,12 +94,17 @@ struct HostsPage: View {
                         }
                         ForEach(gridHosts) { host in hostCard(host) }
                     }
-                }
+                }.focusable().focused($gridFocused)
+                    .onKeyPress(.space) {
+                        guard let host = selectedHost else { return .ignored }
+                        showPreview(host); return .handled
+                    }
+                    .onMoveCommand(perform: move)
             }
             HStack {
-                Text(listLayout ? "↑↓ 选择 · → 展开 · ← 收起 · Return 连接 · 双击打开" : "点击文件夹进入 · 点击连接打开终端")
+                Text(listLayout ? "↑↓ 选择 · → 展开 · ← 收起 · 空格预览 · Return 连接 · 双击打开" : "点击选择 · 空格预览 · 点击连接打开终端")
                 Spacer()
-                if let host = selectedRow?.host {
+                if let host = selectedHost {
                     Button("详情") { model.editorHost = host }
                     Button("SFTP") { model.sftpHost = host }
                     Button("连接") { model.connect(host) }
@@ -116,11 +124,17 @@ struct HostsPage: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .init("BozhouFocusSearch"))) { _ in searchFocused = true }
+            .onChange(of: selection) { _, _ in if preview.isVisible { preview.update(selectedHost, hosts: model.hosts) } }
+            .onChange(of: model.hosts) { _, _ in if preview.isVisible { preview.update(selectedHost, hosts: model.hosts) } }
+            .onChange(of: model.selectedGroup) { _, _ in preview.close() }
+            .onChange(of: model.search) { _, _ in preview.close() }
+            .onChange(of: listLayout) { _, _ in preview.close() }
+            .onDisappear { preview.close() }
     }
 
     private var list: some View {
         HostListView(rows: rows, expanded: expanded,
-                     selection: $selection, onMove: move, onOpen: open, onToggle: toggle, menu: nativeMenu)
+                     selection: $selection, onMove: move, onOpen: open, onToggle: toggle, onPreview: showPreview, menu: nativeMenu)
             .overlay {
                 if rows.isEmpty { Text("此文件夹为空，可新建主机或文件夹").foregroundStyle(.secondary).allowsHitTesting(false) }
             }
@@ -135,6 +149,7 @@ struct HostsPage: View {
             HostMenuAction.add("删除空文件夹", to: menu) { model.deleteFolder(path) }
         }
         if let host = row.host {
+            HostMenuAction.add("快速查看", to: menu) { showPreview(host) }
             HostMenuAction.add("连接", to: menu) { model.connect(host) }
             HostMenuAction.add("SFTP", to: menu) { model.sftpHost = host }
             HostMenuAction.add("详情 / 编辑", to: menu) { model.editorHost = host }
@@ -155,6 +170,14 @@ struct HostsPage: View {
         return menu
     }
     private func move(_ direction: MoveCommandDirection) {
+        if !listLayout {
+            let hosts = gridHosts
+            guard !hosts.isEmpty else { return }
+            let index = hosts.firstIndex { $0.id == selectedHost?.id } ?? 0
+            let next = direction == .down || direction == .right ? min(index + 1, hosts.count - 1) : max(0, index - 1)
+            selection = "h:" + hosts[next].id.uuidString
+            return
+        }
         let all = rows
         guard !all.isEmpty else { return }
         guard let index = all.firstIndex(where: { $0.id == selection }) else { selection = all.first?.id; return }
@@ -182,6 +205,7 @@ struct HostsPage: View {
         guard model.search.isEmpty else { return }
         model.setHostGroupExpanded(path, expanded: !expanded.contains(path))
     }
+    private func showPreview(_ host: Host) { preview.toggle(host, hosts: model.hosts, onMove: move) }
     private func open(_ row: HostRow) {
         if let host = row.host { model.connect(host) }
         if let folder = row.folder { model.selectedGroup = folder; selection = nil }
@@ -195,6 +219,7 @@ struct HostsPage: View {
         Button("删除空文件夹", role: .destructive) { model.deleteFolder(path) }
     }
     @ViewBuilder private func hostMenu(_ host: Host) -> some View {
+        Button("快速查看") { selection = "h:" + host.id.uuidString; showPreview(host) }
         Button("连接") { model.connect(host) }
         Button("SFTP") { model.sftpHost = host }
         Button("详情 / 编辑") { model.editorHost = host }
@@ -211,7 +236,7 @@ struct HostsPage: View {
     }
     private func hostCard(_ host: Host) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(host.name, systemImage: "server.rack").font(.headline).foregroundStyle(sea).lineLimit(1).help(host.name)
+            HStack { Image(systemName: "server.rack"); HostNameLabel(host.displayName) }.font(.headline).foregroundStyle(sea)
             Text(host.systemProfile?.hostname ?? "主机名待采集").font(.system(size: 11, design: .monospaced))
                 .lineLimit(1).help(host.systemProfile?.hostname ?? "下次登录后采集")
             Text("\(host.username)@\(host.address)").font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
@@ -224,6 +249,9 @@ struct HostsPage: View {
                 Button("连接") { model.connect(host) }
             }.controlSize(.small)
         }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 10))
+            .overlay { RoundedRectangle(cornerRadius: 10).stroke(selectedHost?.id == host.id ? sea : .clear, lineWidth: 2) }
+            .contentShape(Rectangle())
+            .onTapGesture { selection = "h:" + host.id.uuidString; gridFocused = true }
             .contextMenu { hostMenu(host) }
     }
 }

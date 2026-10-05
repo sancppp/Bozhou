@@ -62,6 +62,9 @@ final class AppModel: ObservableObject {
         }
         return active
     }
+    func displayName(for item: Interaction) -> HostDisplayName {
+        HostDisplayName(name: item.hostName, hostname: item.hostname ?? hosts.first { $0.id == item.hostID }?.displayName.hostname)
+    }
     var groups: [String] { Array(Set(folders.map(\.path) + hosts.flatMap { HostTree.ancestors($0.group) })).sorted() }
     var filteredHosts: [Host] {
         HostTree.sorted(hosts.filter {
@@ -129,8 +132,6 @@ final class AppModel: ObservableObject {
                 let current = hosts.first { $0.id == host.id } ?? host
                 return try builder.build(host: current, hosts: hosts, identities: identities)
             }
-            session.onInteraction = { [weak self] interaction in self?.record(interaction) }
-            session.onFocus = { [weak self, weak session] in self?.focusedSession = session?.id }
             session.onReady = { [weak self] profile in
                 guard let self, var current = try? self.store.list(Host.self).first(where: { $0.id == host.id }) else { return }
                 current.lastLoginAt = Date()
@@ -142,7 +143,7 @@ final class AppModel: ObservableObject {
                 self?.sendNotification(title: "连接已结束", body: host.name)
             }
             session.onLifecycle = { [weak self] message in self?.log.write("\(host.name): \(message)", category: "SSH lifecycle") }
-            sessions.append(session); activeSession = session.id; splitSession = nil
+            addSession(session)
             log.write("Connecting \(host.name) \(host.address):\(host.port)", category: "SSH lifecycle")
         }
     }
@@ -157,19 +158,33 @@ final class AppModel: ObservableObject {
             var local = Host(); local.shell = "/bin/zsh"
             let launch = SSHLaunch(executable: "/bin/sh", arguments: ["-c", ShellIntegration.bootstrap(host: local, token: id, local: true)], environment: env, directory: directory, token: id)
             let session = TerminalSession(host: nil, launch: launch, settings: settings, directory: workingDirectory)
-            session.onInteraction = { [weak self] interaction in self?.record(interaction) }
-            session.onFocus = { [weak self, weak session] in self?.focusedSession = session?.id }
-            sessions.append(session); activeSession = session.id; splitSession = nil
+            addSession(session)
         }
+    }
+    func addSession(_ session: TerminalSession) {
+        session.onInteraction = { [weak self] interaction in self?.record(interaction) }
+        session.onFocus = { [weak self, weak session] in self?.focusedSession = session?.id }
+        session.onCompletion = { [weak self, weak session] in
+            // Let SwiftTerm finish delivering its process callback before unmounting the view.
+            DispatchQueue.main.async { [weak self, weak session] in
+                guard let session else { return }
+                self?.closeSession(session.id)
+            }
+        }
+        sessions.append(session); activeSession = session.id; focusedSession = session.id; splitSession = nil
     }
     func closeSession(_ id: UUID) {
         guard let session = sessions.first(where: { $0.id == id }) else { return }
         session.close()
         sessions.removeAll { $0.id == id }
-        if splitSession == id { splitSession = nil }
-        if activeSession == id { activeSession = sessions.last?.id }
+        if activeSession == id {
+            activeSession = splitSession.flatMap { other in sessions.first { $0.id == other }?.id } ?? sessions.last?.id
+            splitSession = nil
+        } else if splitSession == id { splitSession = nil }
+        if focusedSession == id { focusedSession = activeSession }
+        if sessions.isEmpty { page = .hosts }
     }
-    func closeAll() { for session in sessions { session.close(immediately: true) }; sessions = []; activeSession = nil; splitSession = nil }
+    func closeAll() { for session in sessions { session.close(immediately: true) }; sessions = []; activeSession = nil; focusedSession = nil; splitSession = nil }
     func record(_ interaction: Interaction) {
         guard settings.saveHistory else { return }
         perform {
@@ -182,6 +197,8 @@ final class AppModel: ObservableObject {
         }
     }
     func pin(_ interaction: Interaction) {
+        var interaction = interaction
+        interaction.hostname = displayName(for: interaction).hostname
         guard !pins.contains(where: { $0.interaction.command == interaction.command && $0.interaction.output == interaction.output }) else {
             notify("相同命令和输出已经收藏"); return
         }

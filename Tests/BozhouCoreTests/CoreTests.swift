@@ -212,17 +212,52 @@ final class CoreTests {
         XCTAssertTrue(!settings.saveHistory)
         XCTAssertEqual(AppSettings().appearance, "light")
         var policy = ReconnectPolicy()
-        for delay in [2, 4, 8, 16, 30] {
+        for delay in [5, 10, 30, 60, 120] {
             XCTAssertEqual(policy.nextDelay(exitCode: 255, output: "Connection reset", enabled: true), delay)
         }
         XCTAssertNil(policy.nextDelay(exitCode: 255, output: "", enabled: true))
+        XCTAssertTrue(policy.exhausted)
         policy.reset()
+        XCTAssertTrue(!policy.exhausted)
         for message in ["Permission denied", "REMOTE HOST IDENTIFICATION HAS CHANGED", "Host key verification failed"] {
             XCTAssertNil(policy.nextDelay(exitCode: 255, output: message, enabled: true))
         }
         XCTAssertNil(policy.nextDelay(exitCode: 0, output: "", enabled: true))
         XCTAssertNil(policy.nextDelay(exitCode: 255, output: "", enabled: false))
-        XCTAssertEqual(policy.nextDelay(exitCode: nil, output: "", enabled: true), 2)
+        XCTAssertEqual(policy.nextDelay(exitCode: nil, output: "", enabled: true), 5)
+    }
+
+    func testHostDisplayAndInteractionMigration() throws {
+        let name = HostDisplayName(name: "ecs-shared-nat_proxy", hostname: "iv-yet1b78rggygp2fbqnpj")
+        XCTAssertEqual(name.full, "ecs-shared-nat_proxy(iv-yet1b78rggygp2fbqnpj)")
+        XCTAssertEqual(name.compact, "ecs-shared-nat_proxy(...fbqnpj)")
+        XCTAssertEqual(HostDisplayName(name: "短名", hostname: "abcdef").compact, "短名(abcdef)")
+        XCTAssertEqual(HostDisplayName(name: "本地终端", hostname: " \n").full, "本地终端")
+        let host = Host(name: "未登录", address: "host.example", group: "生产/华北")
+        XCTAssertEqual(host.displayName.full, "未登录(host.example)")
+        XCTAssertEqual(host.folderPath, "所有主机/生产/华北")
+        let item = Interaction(hostID: host.id, hostName: host.name, sessionID: UUID(), shell: "bash", command: "pwd")
+        let old = try JSONEncoder().encode(item)
+        XCTAssertNil(try JSONDecoder().decode(Interaction.self, from: old).hostname)
+        var recorded: Interaction?
+        let recorder = InteractionRecorder(token: "display", hostID: host.id, hostName: host.name,
+                                           sessionID: UUID(), hostname: "iv-yet1b78rggygp2fbqnpj")
+        recorder.onInteraction = { recorded = $0 }
+        let stream = "\u{1b}]777;bozhou;display;command;/bin/bash;exit 255\u{7}"
+            + "\u{1b}]777;bozhou;foreign;exit;0\u{7}"
+            + "\u{1b}]777;bozhou;display;exit;255\u{7}"
+        for byte in stream.utf8 { _ = recorder.feed([byte]) }
+        XCTAssertEqual(recorder.shellExitCode, 255)
+        recorder.finish(exitCode: recorder.shellExitCode)
+        XCTAssertEqual(recorded?.hostname, "iv-yet1b78rggygp2fbqnpj")
+        XCTAssertEqual(recorded?.exitCode, 255)
+        let snapshot = try XCTUnwrap(recorded)
+        let store = try Store(url: root.appendingPathComponent("display.sqlite"))
+        try store.save(snapshot)
+        try store.save(Pin(snapshot))
+        XCTAssertEqual(try store.list(Interaction.self).first?.hostname, snapshot.hostname)
+        XCTAssertEqual(try store.list(Pin.self).first?.interaction.hostname, snapshot.hostname)
+        XCTAssertEqual(try JSONDecoder().decode(Interaction.self, from: JSONEncoder().encode(snapshot)), snapshot)
     }
 
     func testDiffAlignmentAndBoundedLargeOutput() {

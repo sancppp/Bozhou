@@ -3,6 +3,22 @@ import SwiftTerm
 
 /// Keep IME composition local until macOS commits it. SwiftTerm handles the resulting UTF-8.
 class NativeInputTerminalView: LocalProcessTerminalView {
+    var onFontSizeChange: ((Double) -> Void)?
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, handleFontShortcut(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+    private func handleFontShortcut(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.command), flags.isDisjoint(with: [.control, .option]),
+              let onFontSizeChange else { return false }
+        switch event.charactersIgnoringModifiers {
+        case "-": onFontSizeChange(-1)
+        case "=", "+": onFontSizeChange(1)
+        default: return false
+        }
+        return true
+    }
     private var composition = NSAttributedString()
     private var compositionSelection = NSRange(location: 0, length: 0)
     private lazy var compositionLabel: NSTextField = {

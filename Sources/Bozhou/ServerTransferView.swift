@@ -170,10 +170,8 @@ struct ServerTransferView: View {
         let selection = leftSide ? $relay.leftSelection : $relay.rightSelection
         let files = leftSide ? relay.leftFiles : relay.rightFiles
         return VStack(spacing: 12) {
-            Picker(leftSide ? "服务器 A" : "服务器 B", selection: id) {
-                Text("选择服务器").tag(Optional<UUID>.none)
-                ForEach(model.hosts) { Text($0.name).tag(Optional($0.id)) }
-            }.disabled(relay.busy || relay.connected)
+            HostPicker(title: leftSide ? "服务器 A" : "服务器 B", hosts: model.hosts, selection: id)
+                .disabled(relay.busy || relay.connected)
             HStack {
                 Button {
                     let parent = (directory as NSString).deletingLastPathComponent
@@ -207,6 +205,6 @@ struct ServerTransferView: View {
         let targetHost = model.hosts.first { $0.id == (fromLeft ? relay.rightID : relay.leftID) }
         destination = joined(fromLeft ? relay.rightPath : relay.leftPath, file.name)
         request = TransferRequest(fromLeft: fromLeft, source: joined(fromLeft ? relay.leftPath : relay.rightPath, file.name),
-                                  sourceName: sourceHost?.name ?? "", destinationName: targetHost?.name ?? "", size: file.size)
+                                  sourceName: sourceHost?.displayName.full ?? "", destinationName: targetHost?.displayName.full ?? "", size: file.size)
     }
 }

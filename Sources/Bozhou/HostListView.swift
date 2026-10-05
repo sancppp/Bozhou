@@ -17,6 +17,7 @@ struct HostListView: NSViewRepresentable {
     var onMove: (MoveCommandDirection) -> Void
     var onOpen: (HostRow) -> Void
     var onToggle: (String) -> Void
+    var onPreview: (Host) -> Void
     var menu: (HostRow) -> NSMenu
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -35,6 +36,12 @@ struct HostListView: NSViewRepresentable {
         table.target = context.coordinator; table.doubleAction = #selector(Coordinator.openRow)
         table.onMove = { context.coordinator.parent.onMove($0) }
         table.onOpen = { context.coordinator.openRow() }
+        table.onPreview = {
+            let parent = context.coordinator.parent
+            guard let index = context.coordinator.table?.selectedRow, parent.rows.indices.contains(index),
+                  let host = parent.rows[index].host else { return }
+            parent.onPreview(host)
+        }
         table.rowMenu = { context.coordinator.parent.menu($0) }
         table.setAccessibilityLabel("主机列表")
         context.coordinator.table = table
@@ -99,11 +106,12 @@ struct HostListView: NSViewRepresentable {
             let icon = NSImageView(frame: NSRect(x: indent + 22, y: isFolder ? 6 : 11, width: 16, height: 16))
             icon.image = NSImage(systemSymbolName: isFolder ? "folder.fill" : "server.rack", accessibilityDescription: nil)
             icon.contentTintColor = .controlAccentColor; cell.addSubview(icon)
-            let title = NSTextField(labelWithString: item.folder.map { ($0 as NSString).lastPathComponent } ?? item.host?.name ?? "")
+            let title = HostNameTextField(labelWithString: "")
             title.font = .systemFont(ofSize: 12, weight: .medium)
             title.lineBreakMode = .byTruncatingTail
             title.frame = NSRect(x: indent + 46, y: isFolder ? 6 : 19, width: max(80, tableView.bounds.width - indent - 70 - detailWidth), height: 17)
             title.autoresizingMask = [.width]
+            title.hostName = item.host?.displayName ?? HostDisplayName(name: item.folder.map { ($0 as NSString).lastPathComponent } ?? "", hostname: nil)
             cell.textField = title; cell.addSubview(title)
             if let host = item.host {
                 let subtitle = NSTextField(labelWithString: "\(host.username)@\(host.address):\(host.port)" + (host.favorite ? "  ★" : ""))
@@ -135,6 +143,7 @@ final class HostTableView: NSTableView {
     var rows: [HostRow] = []
     var onMove: ((MoveCommandDirection) -> Void)?
     var onOpen: (() -> Void)?
+    var onPreview: (() -> Void)?
     var rowMenu: ((HostRow) -> NSMenu)?
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
@@ -151,6 +160,7 @@ final class HostTableView: NSTableView {
         case 125: onMove?(.down)
         case 126: onMove?(.up)
         case 36, 76: onOpen?()
+        case 49 where event.modifierFlags.intersection([.command, .control, .option]).isEmpty: onPreview?()
         default: super.keyDown(with: event)
         }
     }

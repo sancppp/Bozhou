@@ -33,14 +33,14 @@ final class FileBrowserModel: ObservableObject {
         do {
             let launch = try model.builder.build(host: host, hosts: model.hosts, identities: model.identities, sftp: true)
             let client = SFTPClient(launch: launch); self.client = client
-            busy = true; status = "正在连接 \(host.name)…"; error = nil
+            busy = true; status = "正在连接 \(host.displayName.full)…"; error = nil
             task = Task {
                 do {
                     let directory = try await client.connect()
                     let entries = try await client.list(directory)
                     guard self.generation == generation else { return }
                     remoteDirectory = directory; remoteEntries = entries
-                    connected = true; status = "已连接 · \(host.name)"
+                    connected = true; status = "已连接 · \(host.displayName.full)"
                     log?.write("SFTP 已连接：\(host.name)")
                 } catch {
                     guard self.generation == generation else { return }
@@ -185,7 +185,10 @@ struct SFTPView: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Image(systemName: "folder.badge.gearshape").font(.title2).foregroundStyle(sea)
-                VStack(alignment: .leading, spacing: 4) { Text("SFTP · \(host.name)").font(.headline); Text("\(host.username)@\(host.address)").font(.caption).foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack { Text("SFTP ·"); HostNameLabel(host.displayName) }.font(.headline)
+                    Text("\(host.username)@\(host.address)").font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("服务器间传输") { serverTransfer = true }
                 if !browser.connected && !browser.busy { Button("重新连接") { browser.connect(model: model, host: host) } }

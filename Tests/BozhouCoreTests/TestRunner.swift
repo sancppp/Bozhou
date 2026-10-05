@@ -61,6 +61,7 @@ struct TestRunner {
             ("SFTP 二进制编码、中文与截断校验", test.testPacketHandlesUnicodeAndRejectsTruncation),
             ("真实 bash / zsh 交互边界与退出码", test.testRealBashAndZshShellHooks),
             ("旧设置迁移、重连退避与认证失败停止", test.testSettingsMigrationAndReconnectPolicy),
+            ("主机名称缩略、旧交互兼容与 hostname 快照", test.testHostDisplayAndInteractionMigration),
             ("输出差异对齐与大输出限额", test.testDiffAlignmentAndBoundedLargeOutput),
             ("结构化日志过滤与旧日志读取", test.testStructuredLogFilteringAndLegacyRead),
             ("文件夹路径、旧主机迁移与转发隔离", test.testFoldersMetadataAndForwardingMigration),
