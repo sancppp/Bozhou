@@ -198,12 +198,26 @@ final class AppModel: ObservableObject {
             try ensureFolders(normalized); try reload()
         }
     }
+    func setHostGroupExpanded(_ path: String, expanded: Bool) {
+        guard settings.expandedHostGroups.contains(path) != expanded else { return }
+        perform {
+            var updated = settings
+            if expanded { updated.expandedHostGroups.insert(path) }
+            else { updated.expandedHostGroups.remove(path) }
+            try store.saveSettings(updated)
+            settings = updated
+        }
+    }
     func renameFolder(_ path: String, to destination: String) {
         perform {
             let target = try HostTree.normalize(destination)
             guard !target.isEmpty, target != path, !HostTree.contains(target, in: path), !groups.contains(target) else {
                 throw BozhouError.invalid("目标文件夹已存在，或路径无效")
             }
+            var updated = settings
+            updated.expandedHostGroups = Set(settings.expandedHostGroups.map {
+                HostTree.contains($0, in: path) ? target + $0.dropFirst(path.count) : $0
+            })
             try store.transaction {
                 for var folder in folders where HostTree.contains(folder.path, in: path) {
                     folder.path = target + folder.path.dropFirst(path.count)
@@ -214,7 +228,9 @@ final class AppModel: ObservableObject {
                     try store.save(host)
                 }
                 try ensureFolders(target)
+                try store.saveSettings(updated)
             }
+            settings = updated
             if HostTree.contains(selectedGroup, in: path) { selectedGroup = target + selectedGroup.dropFirst(path.count) }
             try reload()
         }
@@ -225,7 +241,13 @@ final class AppModel: ObservableObject {
                   !groups.contains(where: { $0 != path && HostTree.contains($0, in: path) }) else {
                 throw BozhouError.invalid("只能删除空文件夹，请先移动其中的主机或子文件夹")
             }
-            for folder in folders where folder.path == path { try store.delete(HostFolder.self, id: folder.id) }
+            var updated = settings
+            updated.expandedHostGroups = settings.expandedHostGroups.filter { !HostTree.contains($0, in: path) }
+            try store.transaction {
+                for folder in folders where folder.path == path { try store.delete(HostFolder.self, id: folder.id) }
+                try store.saveSettings(updated)
+            }
+            settings = updated
             if selectedGroup == path { selectedGroup = HostTree.parent(path) }
             try reload()
         }

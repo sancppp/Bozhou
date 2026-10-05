@@ -4,7 +4,6 @@ import BozhouCore
 struct HostsPage: View {
     @EnvironmentObject var model: AppModel
     @AppStorage("hostsListLayout") private var listLayout = true
-    @State private var expanded: Set<String> = []
     @State private var selection: String?
     @State private var deleting: Host?
     @State private var folderPrompt = false
@@ -12,10 +11,15 @@ struct HostsPage: View {
     @State private var renaming: String?
     @FocusState private var searchFocused: Bool
 
+    // Search reveals matches temporarily without changing the saved folder state.
+    private var expanded: Set<String> {
+        model.search.isEmpty ? model.settings.expandedHostGroups : Set(model.groups)
+    }
     private var rows: [HostRow] {
         var result: [HostRow] = []
         let groups = model.groups
         let hosts = model.filteredHosts
+        let expanded = expanded
         func visit(_ parent: String, depth: Int) {
             let children = groups.filter { path in
                 HostTree.parent(path) == parent && (model.search.isEmpty || hosts.contains(where: { host in HostTree.contains(host.group, in: path) }))
@@ -29,7 +33,7 @@ struct HostsPage: View {
             }
             for path in children {
                 result.append(HostRow(id: "f:" + path, folder: path, host: nil, depth: depth))
-                if expanded.contains(path) || !model.search.isEmpty { visit(path, depth: depth + 1) }
+                if expanded.contains(path) { visit(path, depth: depth + 1) }
             }
             for host in hosts where host.group == parent {
                 result.append(HostRow(id: "h:" + host.id.uuidString, folder: nil, host: host, depth: depth))
@@ -115,7 +119,7 @@ struct HostsPage: View {
     }
 
     private var list: some View {
-        HostListView(rows: rows, expanded: model.search.isEmpty ? expanded : Set(model.groups),
+        HostListView(rows: rows, expanded: expanded,
                      selection: $selection, onMove: move, onOpen: open, onToggle: toggle, menu: nativeMenu)
             .overlay {
                 if rows.isEmpty { Text("此文件夹为空，可新建主机或文件夹").foregroundStyle(.secondary).allowsHitTesting(false) }
@@ -161,10 +165,12 @@ struct HostsPage: View {
         case .right:
             if let folder = row.folder {
                 if expanded.contains(folder), index + 1 < all.count, all[index + 1].depth > row.depth { selection = all[index + 1].id }
-                else { expanded.insert(folder) }
+                else if model.search.isEmpty { model.setHostGroupExpanded(folder, expanded: true) }
             }
         case .left:
-            if let folder = row.folder, expanded.contains(folder) { expanded.remove(folder) }
+            if model.search.isEmpty, let folder = row.folder, expanded.contains(folder) {
+                model.setHostGroupExpanded(folder, expanded: false)
+            }
             else {
                 let parent = row.folder.map(HostTree.parent) ?? row.host?.group ?? ""
                 if all.contains(where: { $0.id == "f:" + parent }) { selection = "f:" + parent }
@@ -172,7 +178,10 @@ struct HostsPage: View {
         default: break
         }
     }
-    private func toggle(_ path: String) { if expanded.contains(path) { expanded.remove(path) } else { expanded.insert(path) } }
+    private func toggle(_ path: String) {
+        guard model.search.isEmpty else { return }
+        model.setHostGroupExpanded(path, expanded: !expanded.contains(path))
+    }
     private func open(_ row: HostRow) {
         if let host = row.host { model.connect(host) }
         if let folder = row.folder { model.selectedGroup = folder; selection = nil }

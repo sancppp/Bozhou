@@ -8,7 +8,7 @@ struct NativeHostsTests {
         setbuf(stdout, nil)
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
-        let model = try AppModel()
+        var model = try AppModel()
         if let index = CommandLine.arguments.firstIndex(of: "--layout") {
             try NativeLayoutProbe.run(model: model, names: Array(CommandLine.arguments.dropFirst(index + 1)))
             return
@@ -20,7 +20,7 @@ struct NativeHostsTests {
         for path in ["NAT", "NAT/成都", "NAT/成都/azc"] { model.createFolder(path) }
         try model.saveHost(Host(name: "主 SP-1", address: "127.0.0.1", group: "NAT/成都/azc"))
         try model.saveHost(Host(name: "主 SP-2", address: "127.0.0.2", group: "NAT/成都/azc"))
-        let content = NSHostingView(rootView: RootView().environmentObject(model))
+        var content = NSHostingView(rootView: RootView().environmentObject(model))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 680),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.contentView = content
@@ -33,7 +33,7 @@ struct NativeHostsTests {
             return nil
         }
         settle()
-        let table = find(HostTableView.self, in: content)!
+        var table = find(HostTableView.self, in: content)!
         precondition(table.numberOfRows == 1)
         window.makeFirstResponder(table)
         func key(_ code: UInt16) {
@@ -118,6 +118,106 @@ struct NativeHostsTests {
             }
         }
         print("PASS compact layout: folder 28 pt, host 38 pt, sidebar 160 pt; rendered view saved")
+
+        let nested: Set<String> = ["NAT", "NAT/成都", "NAT/成都/azc"]
+        func assertExpanded(_ expected: Set<String>) throws {
+            precondition(model.error == nil, model.error ?? "")
+            precondition(model.settings.expandedHostGroups == expected)
+            let persisted = try Store(url: model.paths.database).loadSettings()
+            precondition(persisted.expandedHostGroups == expected)
+        }
+        func toggleFolder(_ path: String) {
+            let row = table.rows.firstIndex { $0.folder == path }!
+            let cell = table.view(atColumn: 0, row: row, makeIfNecessary: true)!
+            let disclosure = find(NSButton.self, in: cell)!
+            disclosure.performClick(nil)
+            settle()
+        }
+        func returnToHosts() {
+            model.page = .snippets
+            settle()
+            precondition(find(HostTableView.self, in: content) == nil, "Leaving hosts must unmount its table")
+            model.page = .hosts
+            settle()
+            table = find(HostTableView.self, in: content)!
+            window.makeFirstResponder(table)
+        }
+        try assertExpanded(nested)
+        model.createFolder("VT")
+        model.createFolder("NAT2")
+        model.setHostGroupExpanded("NAT2", expanded: true)
+        settle()
+        let expanded = nested.union(["NAT2"])
+        let visible = table.rows.map(\.id)
+        returnToHosts()
+        precondition(table.rows.map(\.id) == visible, "Page recreation must restore the expanded tree")
+        try assertExpanded(expanded)
+        print("PASS host tree expansion survives page unmount/remount with mixed open and closed folders")
+
+        toggleFolder("NAT")
+        try assertExpanded(expanded.subtracting(["NAT"]))
+        precondition(table.rows.compactMap(\.host).isEmpty)
+        returnToHosts()
+        precondition(table.rows.compactMap(\.host).isEmpty, "Collapsed parent must stay collapsed on return")
+        toggleFolder("NAT")
+        precondition(table.rows.map(\.id) == visible, "Reopening a parent must preserve its child expansion")
+        try assertExpanded(expanded)
+
+        toggleFolder("NAT/成都")
+        let beforeSearch = expanded.subtracting(["NAT/成都"])
+        try assertExpanded(beforeSearch)
+        model.search = "主 SP-2"
+        settle()
+        precondition(table.rows.compactMap { $0.host?.name } == ["主 SP-2"])
+        toggleFolder("NAT/成都")
+        key(123); key(124)
+        try assertExpanded(beforeSearch)
+        precondition(table.rows.compactMap { $0.host?.name } == ["主 SP-2"])
+        model.search = ""
+        settle()
+        precondition(table.rows.compactMap(\.host).isEmpty, "Ending search must restore the saved collapsed branch")
+        toggleFolder("NAT/成都")
+        try assertExpanded(expanded)
+        print("PASS disclosure buttons persist state; parent collapse preserves children; search is temporary")
+
+        // Recreate the startup model and the entire view hierarchy from the saved workspace.
+        model = try AppModel()
+        content = NSHostingView(rootView: RootView().environmentObject(model))
+        window.contentView = content
+        settle()
+        table = find(HostTableView.self, in: content)!
+        window.makeFirstResponder(table)
+        precondition(table.rows.map(\.id) == visible)
+        try assertExpanded(expanded)
+        model.settings.fontSize = 18
+        model.saveSettings()
+        try assertExpanded(expanded)
+        print("PASS startup reload restores the tree; other settings changes preserve expansion")
+
+        model.selectedGroup = "NAT/成都/azc"
+        model.renameFolder("NAT", to: "生产")
+        let renamed: Set<String> = ["生产", "生产/成都", "生产/成都/azc", "NAT2"]
+        try assertExpanded(renamed)
+        precondition(model.selectedGroup == "生产/成都/azc")
+        precondition(model.hosts.allSatisfy { $0.group == "生产/成都/azc" })
+        model.renameFolder("生产/成都", to: "VT/成都")
+        let moved: Set<String> = ["生产", "VT/成都", "VT/成都/azc", "NAT2"]
+        try assertExpanded(moved)
+        precondition(!model.settings.expandedHostGroups.contains("VT"), "Moving a folder must not expand its destination parent")
+        precondition(model.selectedGroup == "VT/成都/azc")
+        model.deleteFolder("生产")
+        try assertExpanded(moved.subtracting(["生产"]))
+        model.createFolder("生产")
+        try assertExpanded(moved.subtracting(["生产"]))
+        model.renameFolder("NAT2", to: "VT")
+        precondition(model.error != nil, "An existing destination must be rejected")
+        model.error = nil
+        try assertExpanded(moved.subtracting(["生产"]))
+        model.deleteFolder("VT")
+        precondition(model.error != nil, "A nonempty folder must be retained")
+        model.error = nil
+        try assertExpanded(moved.subtracting(["生产"]))
+        print("PASS rename/move remap descendants without touching prefix siblings; delete clears saved state")
         window.orderOut(nil)
     }
 }

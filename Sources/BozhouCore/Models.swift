@@ -197,10 +197,12 @@ public struct AppSettings: Codable, Equatable {
     public var saveHistory: Bool = true
     public var notifications: Bool = false
     public var historyLimit: Int = 1000
+    public var expandedHostGroups: Set<String> = []
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
         case fontName, fontSize, appearance, terminalBackgroundHex, autoReconnect, saveHistory, notifications, historyLimit
+        case expandedHostGroups
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -212,6 +214,7 @@ public struct AppSettings: Codable, Equatable {
         saveHistory = try values.decodeIfPresent(Bool.self, forKey: .saveHistory) ?? true
         notifications = try values.decodeIfPresent(Bool.self, forKey: .notifications) ?? false
         historyLimit = min(3000, max(0, try values.decodeIfPresent(Int.self, forKey: .historyLimit) ?? 1000))
+        expandedHostGroups = try values.decodeIfPresent(Set<String>.self, forKey: .expandedHostGroups) ?? []
     }
 }
 

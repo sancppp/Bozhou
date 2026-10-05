@@ -197,9 +197,15 @@ final class CoreTests {
         XCTAssertEqual(settings.fontSize, 18)
         XCTAssertEqual(settings.appearance, "dark")
         XCTAssertNil(settings.terminalBackgroundHex)
+        XCTAssertTrue(settings.expandedHostGroups.isEmpty)
         var customized = settings
         customized.terminalBackgroundHex = "#E7EBEF"
+        customized.expandedHostGroups = ["生产", "生产/华北", "开发"]
         XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(customized)), customized)
+        let database = root.appendingPathComponent("settings.sqlite")
+        try Store(url: database).saveSettings(customized)
+        XCTAssertEqual(try Store(url: database).loadSettings(), customized)
+        XCTAssertTrue(try Store(url: root.appendingPathComponent("other.sqlite")).loadSettings().expandedHostGroups.isEmpty)
         XCTAssertTrue(settings.autoReconnect)
         XCTAssertTrue(!settings.saveHistory)
         XCTAssertEqual(AppSettings().appearance, "light")
@@ -283,12 +289,16 @@ final class CoreTests {
         XCTAssertEqual(try store.list(Pin.self).count, 2)
         try store.save(HostFolder(path: "生产/华北"))
         try store.save(Host(name: "sample", address: "localhost", group: "生产/华北"))
+        var settings = AppSettings()
+        settings.expandedHostGroups = ["生产", "生产/华北"]
+        try store.saveSettings(settings)
         try Data("test fingerprint".utf8).write(to: paths.knownHosts)
         let copied = try WorkspaceLocation.copy(store: store, from: paths, to: root.appendingPathComponent("target"))
         let loaded = try Store(url: copied.database)
         XCTAssertEqual(try loaded.list(Pin.self), try store.list(Pin.self))
         XCTAssertEqual(try loaded.list(Host.self), try store.list(Host.self))
         XCTAssertEqual(try loaded.list(HostFolder.self), try store.list(HostFolder.self))
+        XCTAssertEqual(try loaded.loadSettings(), settings)
         XCTAssertEqual(try Data(contentsOf: copied.knownHosts), try Data(contentsOf: paths.knownHosts))
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths.database.path))
         XCTAssertThrowsError(try WorkspaceLocation.copy(store: store, from: paths, to: copied.root))
