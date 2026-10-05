@@ -120,6 +120,7 @@ sequenceDiagram
 - `build.sh` 打包两个可执行文件与资源包。已生成图标在 `Resources/`；需要改图标时手动运行 `generate_icon.swift` 与 `iconutil`，构建不重复改图标。
 - `VERSION` 是发布版本源，`package_app.py` 写入 Info.plist，关于页面读取 Bundle 版本；裸可执行文件显示“开发构建”。
 - 资源使用明确白名单，`verify_package.py` 验证；禁止将 `Docs/`、真实工作空间或调试材料整目录复制入包。
+- `Scripts/install.sh` 默认安装到系统级 `/Applications/泊舟.app`；仅在调用方显式传入目录时使用其他安装位置。
 - 当前 ad-hoc 签名，无 Developer ID、公证或自动更新服务。
 
 ## 验证选择

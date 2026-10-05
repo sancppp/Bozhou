@@ -83,6 +83,11 @@ class MigrationTests(unittest.TestCase):
         self.assertFalse(migrate(self.source, self.destination))
         self.assertFalse(self.destination.exists())
 
+    def test_installer_defaults_to_system_applications(self):
+        script = (Path(__file__).resolve().parent / "install.sh").read_text()
+        self.assertIn('INSTALL_DIR="${1:-/Applications}"', script)
+        self.assertNotIn("$HOME/Applications", script)
+
 
 if __name__ == "__main__":
     unittest.main()

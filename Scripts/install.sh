@@ -7,7 +7,7 @@ if [[ "${1:-}" == "--no-build" ]]; then
 else
     bash Scripts/build.sh release
 fi
-INSTALL_DIR="${1:-$HOME/Applications}"
+INSTALL_DIR="${1:-/Applications}"
 APP_SOURCE="$PROJECT_DIR/dist/泊舟.app"
 APP_TARGET="$INSTALL_DIR/泊舟.app"
 codesign --verify --deep --strict "$APP_SOURCE"

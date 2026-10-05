@@ -40,7 +40,7 @@ shasum -a 256 -c SHA256SUMS
 md5 -r Bozhou-*-macOS-arm64.zip | diff - MD5SUMS
 ```
 
-3. 解压后将 `泊舟.app` 移到 `/Applications` 或 `~/Applications`。
+3. 解压后将 `泊舟.app` 移到 `/Applications`。
 
 > [!NOTE]
 > 当前发布包使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名和公证。macOS 可能阻止首次打开；请先确认下载来源和校验和，再按「系统设置 → 隐私与安全性」中的提示允许打开。
@@ -53,10 +53,10 @@ md5 -r Bozhou-*-macOS-arm64.zip | diff - MD5SUMS
 cd Bozhou
 git submodule update --init --recursive
 bash Scripts/install.sh
-open "$HOME/Applications/泊舟.app"
+open "/Applications/泊舟.app"
 ```
 
-默认安装到 `~/Applications`。安装前请退出泊舟；已有应用会保留为带时间戳的备份，现有工作空间不会被覆盖。
+默认安装到 `/Applications`。安装前请退出泊舟；已有应用会保留为带时间戳的备份，现有工作空间不会被覆盖。
 
 ## 快速上手
 
