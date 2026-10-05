@@ -132,7 +132,9 @@ public struct ConnectionBuilder {
                     let args = ["/usr/bin/env", "BOZHOU_AUTH_HOST=\(previous.id.uuidString)",
                                 "/usr/bin/ssh", "-F", configURL.path, "-W"]
                     let command = args.map { shellQuote($0).replacingOccurrences(of: "%", with: "%%") }.joined(separator: " ")
-                    config += "    ProxyCommand exec \(command) '[%h]:%p' bz-\(index - 1)\n"
+                    // OpenSSH invokes ProxyCommand through the user's shell with its own
+                    // `exec` prefix. Adding another one breaks when that shell is Bash.
+                    config += "    ProxyCommand \(command) '[%h]:%p' bz-\(index - 1)\n"
                 }
             }
             try config.write(to: configURL, atomically: true, encoding: .utf8)

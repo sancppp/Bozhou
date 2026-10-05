@@ -44,6 +44,8 @@ final class CoreTests {
         let text = try String(contentsOf: launch.directory.appendingPathComponent("config"))
         XCTAssertTrue(text.contains("'[%h]:%p' bz-0"))
         XCTAssertTrue(text.contains("'[%h]:%p' bz-1"))
+        XCTAssertTrue(text.contains("ProxyCommand '/usr/bin/env'"))
+        XCTAssertTrue(!text.contains("ProxyCommand exec "))
         XCTAssertTrue(text.contains("User jump\n    Port 2222"))
         XCTAssertTrue(text.contains("GlobalKnownHostsFile /dev/null"))
         XCTAssertTrue(text.contains("StrictHostKeyChecking ask"))

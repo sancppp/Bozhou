@@ -136,7 +136,8 @@ sequenceDiagram
 ## Git 与交付
 
 - `main` 保持可构建；常规修改使用短分支和 PR。不要在后续任务中再次重建历史。
-- `release/vX.Y.Z` 使用 annotated tag，必须匹配 `VERSION`，指向最终通过测试的提交。
+- 提交使用 Conventional Commits；Git author/committer 为 `Zhenxiong Tian <sancpp@qq.com>`，不要在 message 中重复 `Author:`。GPT-6-Astra 实质参与的提交添加 `Co-authored-by: GPT-6-Astra <noreply@openai.com>` 和 `Signed-off-by: Zhenxiong Tian <sancpp@qq.com>` trailers，并使用维护者密钥做加密签名。AI 邮箱仅为协作审计标识，不表示 GitHub 账号或责任主体。
+- `release/vX.Y.Z` 使用 signed annotated tag，必须匹配 `VERSION`，指向最终通过测试的提交。
 - `.github/workflows/ci.yml`：PR / main / tag 验证；仅 tag 的 release job 有 `contents: write`，产出 Draft Release。
 - Actions 固定提交 SHA，Dependabot 更新 Actions 和子模块。更新 runner/Xcode 时核实实际可用版本。
 - 远端分支保护、必需检查与私密漏洞报告开关属于 GitHub 仓库设置，不能声称 YAML 已替代这些配置。

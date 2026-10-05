@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Supervise the project-owned fixture and bound integration test duration."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -26,6 +27,7 @@ with (ROOT / ".runtime/logs/fixture.log").open("w") as fixture_log:
         result = subprocess.run(
             [str(ROOT / ".build/debug/BozhouCoreTests"), "--integration"],
             cwd=ROOT, timeout=120, capture_output=True, text=True,
+            env={**os.environ, "SHELL": "/bin/bash"},
         )
         text = result.stdout + result.stderr
         (ROOT / ".runtime/logs/all-tests.log").write_text(text)
