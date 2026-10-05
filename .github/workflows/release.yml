@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags: ["release/v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Check release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: test "$RELEASE_TAG" = "release/v$(cat VERSION)"
+      - name: Test core and isolated SSH / SFTP
+        run: bash Scripts/test.sh
+      - name: Test regression and native input
+        run: |
+          bash Scripts/test_regressions.sh
+          bash Scripts/test_native.sh
+          python3 Scripts/test_install.py
+      - name: Build and verify app
+        run: |
+          bash Scripts/build.sh release
+          python3 Scripts/verify_package.py
+          git diff --exit-code
+      - name: Create distribution
+        run: |
+          VERSION="$(cat VERSION)"
+          test "$(uname -m)" = arm64
+          cd dist
+          ZIP="Bozhou-${VERSION}-macOS-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent 泊舟.app "$ZIP"
+          shasum -a 256 "$ZIP" > SHA256SUMS
+          md5 -r "$ZIP" > MD5SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macOS-arm64
+          path: |
+            dist/Bozhou-*.zip
+            dist/SHA256SUMS
+            dist/MD5SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: macOS-arm64
+          path: dist
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            dist/Bozhou-*.zip dist/SHA256SUMS dist/MD5SUMS \
+            --verify-tag --generate-notes --title "泊舟 ${RELEASE_TAG#release/}"

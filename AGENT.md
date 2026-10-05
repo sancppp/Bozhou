@@ -138,7 +138,7 @@ sequenceDiagram
 - `main` 保持可构建；常规修改使用短分支和 PR。不要在后续任务中再次重建历史。
 - 提交使用 Conventional Commits；Git author/committer 为 `Zhenxiong Tian <sancpp@qq.com>`，不要在 message 中重复 `Author:`。GPT-6-Astra 实质参与的提交添加 `Co-authored-by: GPT-6-Astra <noreply@openai.com>` 和 `Signed-off-by: Zhenxiong Tian <sancpp@qq.com>` trailers，并使用维护者密钥做加密签名。AI 邮箱仅为协作审计标识，不表示 GitHub 账号或责任主体。
 - `release/vX.Y.Z` 使用 signed annotated tag，必须匹配 `VERSION`，指向最终通过测试的提交。
-- `.github/workflows/ci.yml`：PR / main / tag 验证；仅 tag 的 release job 有 `contents: write`，测试通过后直接创建公开 Release，并附带 Apple Silicon ZIP、SHA-256 与 MD5 校验文件。
+- `.github/workflows/ci.yml` 仅验证 PR / main；`.github/workflows/release.yml` 仅由 `release/v*` tag push 触发，测试通过后以 `contents: write` 创建公开 Release，并附带 Apple Silicon ZIP、SHA-256 与 MD5 校验文件。
 - Actions 使用各官方 README 推荐的稳定大版本标签，Dependabot 更新 Actions 和子模块。更新 runner/Xcode 时核实实际可用版本。
 - 远端分支保护、必需检查与私密漏洞报告开关属于 GitHub 仓库设置，不能声称 YAML 已替代这些配置。
 - `Docs/`、`.dbg/`、`panic.log`、历史目标文档、本地数据库、`.runtime/`、`.build/`、`dist/` 均不提交。`Docs/` 可保存本地验收报告，但新会话与构建不能依赖它。

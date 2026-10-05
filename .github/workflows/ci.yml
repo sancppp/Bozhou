@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["release/v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -13,7 +12,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -29,11 +28,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - name: Check release version
-        if: github.ref_type == 'tag'
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: test "$RELEASE_TAG" = "release/v$(cat VERSION)"
       - name: Test core and isolated SSH / SFTP
         run: bash Scripts/test.sh
       - name: Test regression and native input
@@ -46,43 +40,3 @@ jobs:
           bash Scripts/build.sh release
           python3 Scripts/verify_package.py
           git diff --exit-code
-      - name: Create distribution
-        run: |
-          VERSION="$(cat VERSION)"
-          test "$(uname -m)" = arm64
-          cd dist
-          ZIP="Bozhou-${VERSION}-macOS-arm64.zip"
-          ditto -c -k --sequesterRsrc --keepParent 泊舟.app "$ZIP"
-          shasum -a 256 "$ZIP" > SHA256SUMS
-          md5 -r "$ZIP" > MD5SUMS
-      - uses: actions/upload-artifact@v7
-        with:
-          name: macOS-arm64
-          path: |
-            dist/Bozhou-*.zip
-            dist/SHA256SUMS
-            dist/MD5SUMS
-          if-no-files-found: error
-          retention-days: 14
-
-  release:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/release/v')
-    needs: verify
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: macOS-arm64
-          path: dist
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          gh release create "$RELEASE_TAG" \
-            dist/Bozhou-*.zip dist/SHA256SUMS dist/MD5SUMS \
-            --verify-tag --generate-notes --title "泊舟 ${RELEASE_TAG#release/}"
