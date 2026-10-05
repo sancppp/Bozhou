@@ -53,9 +53,10 @@ bash Scripts/test.sh --unit
 维护者发布流程：
 
 1. 更新 `VERSION` 及相关用户文档，通过 CI 并合入 `main`。
-2. 在最终提交创建 `git tag -s release/vX.Y.Z -m "泊舟 X.Y.Z"`，推送该标签。
-3. Actions 再次验证并生成 Draft Release，包含 ZIP 与 SHA-256 校验和。
-4. 下载并确认产物、签名状态和说明后发布草稿。当前流水线不含 Developer ID 签名或公证，不应标注为已公证。
+2. 发布 tag 会直接触发公开发布，不再经过 Draft 人工闸门；推送前必须完成适用测试并确认版本与说明。
+3. 在最终提交创建 `git tag -s release/vX.Y.Z -m "泊舟 X.Y.Z"`，推送该标签。
+4. Actions 再次验证，构建 Apple Silicon ZIP，生成 SHA-256 与 MD5 校验文件，并创建公开 Release。
+5. 工作流完成后下载公开资产复核文件名、校验和和发布说明。当前流水线不含 Developer ID 签名或公证，不应标注为已公证。
 
 将项目首次托管到 GitHub 后，维护者应启用 `main` 分支保护、要求 PR 和 `verify` 检查，并开启私密漏洞报告。上述仓库设置需要在 GitHub 配置。
 

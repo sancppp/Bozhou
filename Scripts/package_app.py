@@ -22,7 +22,7 @@ for executable in ("Bozhou", "BozhouAskPass"):
 shutil.copy2(root / "Resources" / "Bozhou.icns", resources / "Bozhou.icns")
 for bundle in ("Bozhou_SwiftTerm.bundle", "Bozhou_BozhouCore.bundle"):
     shutil.copytree(root / ".build" / configuration / bundle, resources / bundle)
-for document in ("README.md", "THIRD_PARTY_NOTICES.md", "LICENSE", "CONTRIBUTING.md", "SECURITY.md"):
+for document in ("THIRD_PARTY_NOTICES.md", "LICENSE"):
     shutil.copy2(root / document, resources / document)
 shutil.copy2(root / "Vendor" / "SwiftTerm" / "LICENSE", resources / "SwiftTerm-LICENSE.txt")
 shutil.copy2(root / "Vendor" / "bash-preexec" / "LICENSE.md", resources / "bash-preexec-LICENSE.md")

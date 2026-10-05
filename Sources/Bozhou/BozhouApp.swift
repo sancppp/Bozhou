@@ -63,15 +63,28 @@ struct BozhouApp: App {
             CommandGroup(replacing: .appSettings) {
                 Button("设置…") { model.activeSession = nil; model.page = .settings }.keyboardShortcut(",")
             }
+            CommandGroup(replacing: .appInfo) {
+                Button("关于泊舟") { showAboutPanel() }
+            }
             CommandGroup(replacing: .help) {
-                Button("泊舟使用指南") {
-                    if let url = Bundle.main.url(forResource: "README", withExtension: "md") { NSWorkspace.shared.open(url) }
-                }
+                Button("泊舟项目主页") { NSWorkspace.shared.open(AppLinks.repository) }
             }
         }
         MenuBarExtra("泊舟", systemImage: "sailboat") {
             StatusMenu().environmentObject(model)
         }
+    }
+    private func showAboutPanel() {
+        let credits = NSAttributedString(
+            string: AppLinks.repositoryDisplayName,
+            attributes: [
+                .link: AppLinks.repository,
+                .foregroundColor: NSColor.linkColor,
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+            ]
+        )
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 

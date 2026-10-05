@@ -22,11 +22,11 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Check release version
@@ -51,14 +51,17 @@ jobs:
           VERSION="$(cat VERSION)"
           test "$(uname -m)" = arm64
           cd dist
-          ditto -c -k --sequesterRsrc --keepParent 泊舟.app "Bozhou-${VERSION}-macOS-arm64.zip"
-          shasum -a 256 "Bozhou-${VERSION}-macOS-arm64.zip" > SHA256SUMS
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+          ZIP="Bozhou-${VERSION}-macOS-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent 泊舟.app "$ZIP"
+          shasum -a 256 "$ZIP" > SHA256SUMS
+          md5 -r "$ZIP" > MD5SUMS
+      - uses: actions/upload-artifact@v7
         with:
           name: macOS-arm64
           path: |
             dist/Bozhou-*.zip
             dist/SHA256SUMS
+            dist/MD5SUMS
           if-no-files-found: error
           retention-days: 14
 
@@ -70,15 +73,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@v8
         with:
           name: macOS-arm64
           path: dist
-      - name: Create draft release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" dist/Bozhou-*.zip dist/SHA256SUMS \
-            --verify-tag --draft --generate-notes --title "泊舟 ${RELEASE_TAG#release/}"
+          gh release create "$RELEASE_TAG" \
+            dist/Bozhou-*.zip dist/SHA256SUMS dist/MD5SUMS \
+            --verify-tag --generate-notes --title "泊舟 ${RELEASE_TAG#release/}"

@@ -379,6 +379,9 @@ struct PreferencesView: View {
                         Text("SwiftUI · OpenSSH · SwiftTerm · SQLite").font(.caption).foregroundStyle(.secondary)
                     } }
                     Text("每一次连接，皆有所归。").font(.caption).foregroundStyle(.secondary)
+                    Link(destination: AppLinks.repository) {
+                        Label(AppLinks.repositoryDisplayName, systemImage: "link")
+                    }.font(.caption)
                 }
             }.formStyle(.grouped)
         }.onChange(of: model.settings) { _, _ in model.saveSettings() }
