@@ -222,6 +222,66 @@ struct TerminalSurface: NSViewRepresentable {
     func updateNSView(_ view: RecordingTerminalView, context: Context) {}
 }
 
+private struct TerminalHeaderIdentity: View {
+    let name: HostDisplayName
+    let host: Host?
+    let folder: String?
+
+    var body: some View {
+        if let host, let folder {
+            ViewThatFits(in: .horizontal) {
+                fixedRow(name.full, host: host, folder: folder)
+                fixedRow(name.compact, host: host, folder: folder)
+                adaptiveRow(host: host, folder: folder)
+            }
+            .help("\(name.full) · \(endpoint(host)) · \(folder)")
+            .accessibilityLabel("\(name.full)，\(endpoint(host))，\(folder)")
+        } else {
+            HostNameLabel(name).font(.system(size: 12, weight: .medium))
+        }
+    }
+
+    private func fixedRow(_ title: String, host: Host, folder: String) -> some View {
+        HStack(spacing: 6) {
+            Text(title).font(.system(size: 12, weight: .medium)).fixedSize()
+            separator
+            Text(endpoint(host)).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).fixedSize()
+            separator
+            Text(folder).font(.system(size: 10)).foregroundStyle(.secondary).fixedSize()
+        }
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func adaptiveRow(host: Host, folder: String) -> some View {
+        HStack(spacing: 6) {
+            HostNameLabel(name)
+                .font(.system(size: 12, weight: .medium))
+                .layoutPriority(3)
+            separator
+            Text(endpoint(host))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(minWidth: 56, alignment: .leading)
+                .layoutPriority(2)
+            separator
+            Text(folder)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(minWidth: 56, alignment: .leading)
+                .layoutPriority(1)
+        }
+        .lineLimit(1)
+    }
+
+    private var separator: some View { Text("·").foregroundStyle(.tertiary) }
+    private func endpoint(_ host: Host) -> String { "\(host.username)@\(host.address):\(host.port)" }
+}
+
 struct TerminalPane: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var session: TerminalSession
@@ -236,15 +296,18 @@ struct TerminalPane: View {
             HStack(spacing: 12) {
                 Circle().fill(session.connected ? Color.mint : session.ended ? .gray : .orange).frame(width: 7, height: 7)
                 VStack(alignment: .leading, spacing: 3) {
-                    HostNameLabel(session.displayName).font(.system(size: 12, weight: .medium))
-                    Text(session.status).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).help(session.status)
-                    if let host = session.host {
-                        Text("\(host.username)@\(host.address):\(String(host.port))")
-                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
-                            .help("\(host.username)@\(host.address):\(host.port)")
-                        let folder = model.hosts.first { $0.id == host.id }?.folderPath ?? host.folderPath
-                        Text(folder).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(folder)
+                    let folder = session.host.map { host in
+                        model.hosts.first { $0.id == host.id }?.folderPath ?? host.folderPath
                     }
+                    TerminalHeaderIdentity(name: session.displayName, host: session.host, folder: folder)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("terminal-header-identity")
+                    Text(session.status)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .help(session.status)
+                        .accessibilityIdentifier("terminal-header-status")
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Menu {
                     ForEach(model.snippets) { snippet in Button(snippet.name) { session.send(snippet.command) } }

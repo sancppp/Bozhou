@@ -285,9 +285,14 @@ struct NativeHostsTests {
         model.addSession(session)
         let pane = NSHostingView(rootView: TerminalPane(session: session).environmentObject(model))
         window.contentView = pane
-        window.setContentSize(NSSize(width: 440, height: 320))
+        window.setContentSize(NSSize(width: 664, height: 320))
         try capture("terminal-header")
+        window.setContentSize(NSSize(width: 440, height: 320))
+        try capture("terminal-header-narrow")
         precondition(pane.bounds.width == 440, "Long host metadata must fit a narrow split pane")
+        let terminalBounds = session.terminal.convert(session.terminal.bounds, to: pane)
+        let headerHeight = pane.bounds.maxY - terminalBounds.maxY
+        precondition(headerHeight < 70, "Terminal identity and metadata must share one row above the status row")
         precondition(session.displayName.full.contains("iv-yet1b78rggygp2fbqnpj"))
         var item = Interaction(hostID: jump.id, hostName: jump.name, sessionID: session.id, shell: "bash", command: "pwd")
         precondition(model.displayName(for: item).hostname == jump.systemProfile?.hostname, "Old history must resolve the host by ID")
@@ -296,6 +301,6 @@ struct NativeHostsTests {
         model.pin(item)
         precondition(model.pins.first?.interaction.hostname == "historical-host")
         model.closeAll()
-        print("PASS jump editor and 440-pt terminal header render long names; historical host identity is preserved")
+        print("PASS jump editor and two-row 440-pt terminal header render long names; historical host identity is preserved")
     }
 }
