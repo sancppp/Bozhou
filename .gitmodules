@@ -1,0 +1,6 @@
+[submodule "Vendor/SwiftTerm"]
+	path = Vendor/SwiftTerm
+	url = https://github.com/migueldeicaza/SwiftTerm.git
+[submodule "Vendor/bash-preexec"]
+	path = Vendor/bash-preexec
+	url = https://github.com/rcaloras/bash-preexec.git

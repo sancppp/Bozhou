@@ -1,0 +1,30 @@
+diff --git a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
+--- a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
++++ b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
+@@ -2735,7 +2735,13 @@
+     private static func candidateBundles() -> [Bundle] {
+         var bundles: [Bundle] = []
+         #if SWIFT_PACKAGE
+-        bundles.append(Bundle.module)
++        // SwiftPM resources live inside the signed application Resources directory.
++        if let url = Bundle.main.resourceURL?.appendingPathComponent("Bozhou_SwiftTerm.bundle"),
++           let packaged = Bundle(url: url) {
++            bundles.append(packaged)
++        } else {
++            bundles.append(Bundle.module)
++        }
+         #endif
+         bundles.append(Bundle(for: MetalTerminalRenderer.self))
+         bundles.append(Bundle.main)
+diff --git a/Sources/SwiftTerm/Mac/MacTerminalView.swift b/Sources/SwiftTerm/Mac/MacTerminalView.swift
+--- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
++++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
+@@ -716,7 +716,7 @@
+     //
+     // NSTextInputClient protocol implementation
+     //
+-    public override func becomeFirstResponder() -> Bool {
++    open override func becomeFirstResponder() -> Bool {
+         let response = super.becomeFirstResponder()
+         if response {
+             hasFocus = true

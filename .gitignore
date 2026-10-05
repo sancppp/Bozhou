@@ -1,0 +1,22 @@
+.build/
+.runtime/
+dist/
+.DS_Store
+*.xcodeproj/
+.swiftpm/
+Sources/BozhouCore/Resources/bash-preexec.sh
+__pycache__/
+
+# Local diagnostics, acceptance notes and historical planning are not published.
+/Docs/
+/.dbg/
+/panic.log
+/*目标.md
+/debug-*.md
+*.log
+*.ips
+*.sqlite
+*.sqlite-*
+.env
+.env.*
+!.env.example

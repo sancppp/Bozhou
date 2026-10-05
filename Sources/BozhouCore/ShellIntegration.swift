@@ -1,0 +1,219 @@
+import Foundation
+
+public enum ShellIntegration {
+    private static let bashPreexec: String = {
+        // Resolve packaged resources before touching Bundle.module (its fallback may be a build path).
+        let packaged = Bundle.main.resourceURL?.appendingPathComponent("Bozhou_BozhouCore.bundle")
+        let bundle = packaged.flatMap(Bundle.init(url:)) ?? Bundle.module
+        guard let url = bundle.url(forResource: "bash-preexec", withExtension: "sh"),
+              let script = try? String(contentsOf: url, encoding: .utf8) else {
+            preconditionFailure("Missing bash-preexec resource")
+        }
+        return script
+    }()
+
+    // Shell builtins only: no base64/tr processes per command. Escape protocol separators first.
+    private static func hooks(token: String, shell: String) -> String {
+        """
+        __bz_preexec() {
+          local cmd="$1"
+          cmd="${cmd//\\%/%25}"
+          cmd="${cmd//;/%3B}"
+          cmd="${cmd//$'\\e'/%1B}"
+          cmd="${cmd//$'\\a'/%07}"
+          cmd="${cmd//$'\\n'/%0A}"
+          cmd="${cmd//$'\\r'/%0D}"
+          builtin printf '\\033]777;bozhou;\(token);command;%s;%s\\007' "\(shell)" "$cmd"
+        }
+        __bz_precmd() {
+          local code=$?
+          builtin printf '\\033]777;bozhou;\(token);end;%s\\007' "$code"
+          return "$code"
+        }
+        """
+    }
+
+    /// Only ephemeral zsh startup files are created, on the remote host. They remove themselves.
+    public static func bootstrap(host: Host, token: String, local: Bool = false) -> String {
+        let environment = host.environment.sorted { $0.key < $1.key }
+            .map { "export \($0.key)=\(shellQuote($0.value));" }.joined(separator: " ")
+        let shell = host.shell.isEmpty ? "\"${SHELL:-/bin/sh}\"" : shellQuote(host.shell)
+        let script = """
+        \(environment)
+        \(local ? "export BOZHOU_LOCAL=1" : SystemProbe.script(token: token))
+        bz_shell=\(shell)
+        export BOZHOU_SHELL="$bz_shell"
+        case "$bz_shell" in
+          */bash)
+            exec "$bz_shell" --rcfile /dev/fd/3 -i 3<<'BOZHOU_\(token)'
+        \(bash(token: token))
+        BOZHOU_\(token)
+            ;;
+          */zsh)
+            bz_dir=$(mktemp -d "${TMPDIR:-/tmp}/bozhou.XXXXXXXX") || exit 1
+            export BOZHOU_OLD_ZDOTDIR="${ZDOTDIR:-$HOME}"
+            export BOZHOU_BOOTDIR="$bz_dir"
+            cat >"$bz_dir/.zshenv" <<'BOZHOU_ENV'
+        ZDOTDIR="$BOZHOU_OLD_ZDOTDIR"
+        [[ -r "$ZDOTDIR/.zshenv" ]] && source "$ZDOTDIR/.zshenv"
+        BOZHOU_OLD_ZDOTDIR="${ZDOTDIR:-$HOME}"
+        ZDOTDIR="$BOZHOU_BOOTDIR"
+        BOZHOU_ENV
+            cat >"$bz_dir/.zshrc" <<'BOZHOU_\(token)'
+        \(zsh(token: token))
+        BOZHOU_\(token)
+            ZDOTDIR="$bz_dir" exec "$bz_shell" -i
+            ;;
+          *) printf '\\033]777;bozhou;\(token);ready;other\\007'; exec "$bz_shell" -i ;;
+        esac
+        """
+        return "exec /bin/sh -c " + shellQuote(script)
+    }
+
+    public static func bash(token: String) -> String {
+        """
+        [[ -r ~/.bashrc ]] && source ~/.bashrc
+        __bz_load_preexec() {
+        \(bashPreexec)
+        }
+        __bz_load_preexec
+        unset -f __bz_load_preexec
+        \(hooks(token: token, shell: "${BOZHOU_SHELL:-$BASH}"))
+        preexec_functions=(__bz_preexec "${preexec_functions[@]}")
+        precmd_functions=(__bz_precmd "${precmd_functions[@]}")
+        printf '\\033]777;bozhou;\(token);ready;bash\\007'
+        """
+    }
+
+    public static func zsh(token: String) -> String {
+        """
+        __bz_bootdir="$ZDOTDIR"
+        ZDOTDIR="$BOZHOU_OLD_ZDOTDIR"
+        unset BOZHOU_OLD_ZDOTDIR BOZHOU_BOOTDIR
+        [[ -r "$ZDOTDIR/.zshrc" ]] && source "$ZDOTDIR/.zshrc"
+        if [[ "${BOZHOU_LOCAL:-}" == 1 ]] && (( ! $+functions[omz] )); then
+          export ZSH="${ZSH:-$HOME/.oh-my-zsh}"
+          if [[ -r "$ZSH/oh-my-zsh.sh" ]]; then
+            zstyle ':omz:update' mode disabled
+            source "$ZSH/oh-my-zsh.sh"
+          fi
+        fi
+        unset BOZHOU_LOCAL
+        rm -f -- "$__bz_bootdir/.zshrc" "$__bz_bootdir/.zshenv"
+        rmdir -- "$__bz_bootdir" 2>/dev/null
+        unset __bz_bootdir
+        \(hooks(token: token, shell: "${BOZHOU_SHELL:-/bin/zsh}"))
+        # precmd() runs before precmd_functions. Wrap it to capture the original status,
+        # then return that status so existing prompt hooks (including themes) see it.
+        if (( $+functions[precmd] )); then
+          functions[__bz_original_precmd]=$functions[precmd]
+        fi
+        precmd() {
+          local code=$?
+          __bz_status "$code"
+          __bz_precmd
+          if (( $+functions[__bz_original_precmd] )); then
+            __bz_status "$code"
+            __bz_original_precmd
+          fi
+          return "$code"
+        }
+        __bz_status() { return "$1"; }
+        preexec_functions=(__bz_preexec ${preexec_functions:#__bz_preexec})
+        printf '\\033]777;bozhou;\(token);ready;zsh\\007'
+        """
+    }
+}
+
+/// Streaming byte parser: UTF-8 and OSC boundaries may be split across arbitrary PTY reads.
+public final class InteractionRecorder {
+    public var onInteraction: ((Interaction) -> Void)?
+    public var onReady: ((String) -> Void)?
+    public var onSystemProfile: ((SystemProfile) -> Void)?
+    public let maximumOutput: Int
+    private let prefix: [UInt8]
+    private var pending: [UInt8] = []
+    private var output: [UInt8] = []
+    private var active: Interaction?
+    private let hostID: UUID?
+    private let hostName: String
+    private let sessionID: UUID
+    public private(set) var recentOutput: [UInt8] = []
+    public init(token: String, hostID: UUID?, hostName: String, sessionID: UUID, maximumOutput: Int = 256 * 1024) {
+        prefix = Array("\u{1b}]777;bozhou;\(token);".utf8)
+        self.hostID = hostID; self.hostName = hostName; self.sessionID = sessionID; self.maximumOutput = maximumOutput
+    }
+
+    /// Returns terminal display bytes with our private markers removed.
+    public func feed(_ data: [UInt8]) -> [UInt8] {
+        pending += data
+        var visible: [UInt8] = [], cursor = 0, plain = 0
+        while cursor < pending.count {
+            if pending[cursor] == prefix[0] {
+                let available = min(prefix.count, pending.count - cursor)
+                if pending[cursor..<(cursor + available)].elementsEqual(prefix.prefix(available)) {
+                    if available < prefix.count { break }
+                    guard let end = pending[(cursor + prefix.count)...].firstIndex(of: 7) else {
+                        if pending.count - cursor > 65536 { cursor += 1; continue }
+                        break
+                    }
+                    let before = Array(pending[plain..<cursor])
+                    appendOutput(before); visible += before
+                    let fields = String(decoding: pending[(cursor + prefix.count)..<end], as: UTF8.self).components(separatedBy: ";")
+                    marker(fields)
+                    cursor = end + 1; plain = cursor; continue
+                }
+            }
+            cursor += 1
+        }
+        let before = Array(pending[plain..<cursor])
+        appendOutput(before); visible += before
+        pending.removeFirst(cursor)
+        recentOutput += visible
+        if recentOutput.count > maximumOutput { recentOutput.removeFirst(recentOutput.count - maximumOutput) }
+        return visible
+    }
+
+    public func finish(exitCode: Int? = nil) {
+        appendOutput(pending); pending.removeAll()
+        if var current = active {
+            current.output = Self.clean(String(decoding: output, as: UTF8.self))
+            current.exitCode = exitCode
+            onInteraction?(current)
+        }
+        active = nil; output.removeAll()
+    }
+
+    private func appendOutput(_ bytes: [UInt8]) {
+        guard active != nil else { return }
+        let remaining = max(0, maximumOutput - output.count)
+        output += bytes.prefix(remaining)
+        if bytes.count > remaining { active?.truncated = true }
+    }
+    private func marker(_ fields: [String]) {
+        guard let kind = fields.first else { return }
+        if kind == "system", fields.count == 2, let profile = SystemProbe.parse(fields[1]) { onSystemProfile?(profile) }
+        if kind == "ready", fields.count >= 2 { onReady?(fields[1]) }
+        if kind == "command", fields.count >= 3, let command = fields[2].removingPercentEncoding {
+            if var current = active {
+                current.output = Self.clean(String(decoding: output, as: UTF8.self))
+                onInteraction?(current)
+            }
+            active = Interaction(hostID: hostID, hostName: hostName, sessionID: sessionID,
+                                 shell: fields[1].hasPrefix("/") ? "#!\(fields[1])" : "#!/bin/\(fields[1])",
+                                 command: command)
+            output.removeAll()
+        }
+        if kind == "end", var current = active {
+            current.output = Self.clean(String(decoding: output, as: UTF8.self))
+            current.exitCode = fields.count > 1 ? Int(fields[1]) : nil
+            active = nil; output.removeAll()
+            onInteraction?(current)
+        }
+    }
+    public static func clean(_ string: String) -> String {
+        string.replacingOccurrences(of: #"\x1B\[[0-?]*[ -/]*[@-~]"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\x1B\][^\x07]*(?:\x07|\x1B\\)"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "")
+    }
+}
