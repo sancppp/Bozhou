@@ -5,6 +5,19 @@ if [[ "${1:-}" == "--unit" ]]; then
     swift run --disable-sandbox --cache-path .runtime/cache/spm BozhouCoreTests
     exit
 fi
+if [[ "${1:-}" == "--shell-stability" ]]; then
+    swift build --disable-sandbox --cache-path .runtime/cache/spm --product BozhouCoreTests
+    BIN_PATH="$(swift build --show-bin-path)"
+    MATRIX_DIR="$PROJECT_DIR/.runtime/shell-stability"
+    mkdir -p "$MATRIX_DIR"
+    "$BIN_PATH/BozhouCoreTests" --export-shells "$MATRIX_DIR/shells.json"
+    MATRIX_ARGS=(--shells "$MATRIX_DIR/shells.json" --output "$MATRIX_DIR")
+    if [[ -n "${BOZHOU_TEST_OMZ:-}" ]]; then
+        MATRIX_ARGS+=(--omz "$BOZHOU_TEST_OMZ")
+    fi
+    "$PYTHON" Scripts/test_shell_stability.py "${MATRIX_ARGS[@]}"
+    exit
+fi
 if [[ ! -x .runtime/venv/bin/python ]]; then
     "$PYTHON" -m venv .runtime/venv
 fi

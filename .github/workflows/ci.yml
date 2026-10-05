@@ -30,6 +30,8 @@ jobs:
           python-version: "3.14"
       - name: Test core and isolated SSH / SFTP
         run: bash Scripts/test.sh
+      - name: Test real PTY shell stability
+        run: bash Scripts/test.sh --shell-stability
       - name: Test regression and native input
         run: |
           bash Scripts/test_regressions.sh

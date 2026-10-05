@@ -9,6 +9,7 @@
 - 许可证：MIT，完整文本见 `Vendor/SwiftTerm/LICENSE`；亦包含于 `.app/Contents/Resources/SwiftTerm-LICENSE.txt`。
 - 管理：`Vendor/SwiftTerm` 为固定提交的 Git 子模块，不直接修改上游源码。
 - 本地补丁：`Patches/swiftterm-app-resources.patch` 为 Metal 资源增加标准 `.app` Resources 查找路径，并开放终端焦点回调用于分屏快捷键路由；构建时只应用于 `.runtime/SwiftTerm` 副本。根 `Package.swift` 直接编译副本的库源码，不引入上游演示和 benchmark 依赖。
+- `Patches/swiftterm-pty-drain.patch` 在进程退出后等待 PTY 尾部与排队输出交付，再通知会话结束；后台子进程持有 PTY 时以 2 秒为读取上限，避免丢失异常退出现场。
 
 ## bash-preexec
 

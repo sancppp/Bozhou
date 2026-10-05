@@ -30,6 +30,8 @@
 
 ## 安装
 
+本次更新见 [更新记录](CHANGELOG.md)。
+
 ### 从 Releases 安装
 
 1. 从仓库的 Releases 页面下载 `Bozhou-<版本>-macOS-arm64.zip`、`SHA256SUMS` 和 `MD5SUMS`。
@@ -70,7 +72,9 @@ open "/Applications/泊舟.app"
 
 在主机列表或网格中选中主机后，按空格快速查看基本信息，用 ↑↓ 切换，空格或 Esc 关闭。跳板、会话、历史和收藏使用 `名称(hostname)` 标识主机，空间不足时缩为 `名称(...末六位)`，悬停可查看完整名称；尚未采集 hostname 时使用连接地址。
 
-终端页头同时显示连接状态、用户名、地址端口、文件夹路径和 hostname。用 `⌘−` / `⌘=` 缩小、放大当前焦点窗格的字体（10–36 pt）；缩放在当前会话内保留，设置中的字号决定新会话的默认值。输入 `exit` 或发送 EOF，Shell 退出后会自动关闭对应标签或分屏窗格。
+终端页头同时显示连接状态、用户名、地址端口、文件夹路径和 hostname。用 `⌘−` / `⌘=` 缩小、放大当前焦点窗格的字体（10–36 pt）；缩放在当前会话内保留，设置中的字号决定新会话的默认值。Shell 以状态 0 退出后会自动关闭对应标签或分屏窗格；非零或未知状态保留现场，可手动重新连接。
+
+异常退出时自动保存上下文，从终端的「异常退出上下文」按钮或「日志 → SSH 与异常日志」查看。报告包含退出状态、Shell、终端尺寸、末尾输出、SSH 日志片段和本次连接最近 5 条交互，保存在工作空间 `logs/*.terminal-context.json`，最多保留 20 份，关闭标签后仍可查看。
 
 ## 使用示例
 
@@ -102,6 +106,7 @@ open "/Applications/泊舟.app"
 - 默认工作空间位于 `~/Library/Application Support/Bozhou/`，可在设置中迁移到空目录；迁移完成后原目录仍会保留。
 - 私钥只保存文件路径，私钥口令和验证码不会持久化，也不会写入进程参数、环境变量或日志。
 - 命令历史和交互收藏可能包含敏感输出，可在设置中关闭记录或清空历史。
+- 异常上下文独立于历史开关保存，文件权限为仅当前用户读写；终端和 SSH 尾部分别最多 64 KiB、16 KiB。报告会替换当前主机已保存密码的原文，但命令及输出仍可能包含其他敏感内容，分享前请检查。
 - 本地端口转发只监听 `127.0.0.1`；端口冲突会使连接失败。
 - 应用不修改用户或服务器的持久化 Shell 配置，不安装远端插件或 Agent。
 - 安全问题请优先通过 GitHub 的私密漏洞报告入口提交，详情见 [SECURITY.md](SECURITY.md)。
@@ -125,6 +130,7 @@ open "/Applications/泊舟.app"
 - 发布产物面向 Apple Silicon 和 macOS 14+；Intel 构建及全部 macOS 版本尚未逐一验证。
 - SFTP 仅支持单文件顺序传输，不提供目录递归、断点续传或并发队列；目录删除仅支持空目录。
 - Bash / Zsh 支持自动记录；其他 Shell 使用手动快照，tmux 内部 Shell 不自动注入记录 Hook。
+- 用户配置若覆盖 Bash 的 `PROMPT_COMMAND` 或清空 Zsh 的 Hook 数组，自动记录可能停止；重新连接可重新加载 Hook。泊舟不拦截这类配置修改。
 - 单条交互最多保存 256 KiB 输出，不能还原 Vim、top 等程序的屏幕布局。
 - 合计超过 4000 行的输出对比按行位置高亮，不进行语义差异分析。
 
@@ -142,6 +148,7 @@ export BOZHOU_PYTHON="$(brew --prefix python@3.14)/bin/python3.14"
 
 bash Scripts/build.sh release
 bash Scripts/test.sh --unit
+bash Scripts/test.sh --shell-stability
 bash Scripts/test.sh
 bash Scripts/test_regressions.sh
 bash Scripts/test_native.sh

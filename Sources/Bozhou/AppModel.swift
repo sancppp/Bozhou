@@ -162,6 +162,7 @@ final class AppModel: ObservableObject {
         }
     }
     func addSession(_ session: TerminalSession) {
+        session.diagnosticsDirectory = paths.logs
         session.onInteraction = { [weak self] interaction in self?.record(interaction) }
         session.onFocus = { [weak self, weak session] in self?.focusedSession = session?.id }
         session.onCompletion = { [weak self, weak session] in

@@ -4,5 +4,7 @@
 *.py text eol=lf
 *.md text eol=lf
 *.yml text eol=lf
+# Unified diffs must preserve upstream whitespace in their context lines.
+Patches/*.patch whitespace=-blank-at-eol
 *.png binary
 *.icns binary

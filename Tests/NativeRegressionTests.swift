@@ -84,12 +84,19 @@ struct NativeRegressionTests {
                 try await Task.sleep(for: .milliseconds(100))
                 precondition(!session.ended && model.sessions.contains { $0.id == session.id })
                 session.send(command, execute: true)
-                try await wait { !model.sessions.contains { $0.id == session.id } }
-                precondition(!session.reconnecting && model.activeSession == nil && model.page == .hosts)
+                try await wait { session.ended }
+                if command == "exit" {
+                    try await wait { !model.sessions.contains { $0.id == session.id } }
+                    precondition(!session.reconnecting && model.activeSession == nil && model.page == .hosts)
+                } else {
+                    precondition(model.sessions.contains { $0.id == session.id } && !session.reconnecting)
+                    precondition(session.diagnosticURL != nil, "Nonzero exits must retain their diagnostic context")
+                }
                 if shell != "/bin/sh" {
                     precondition(model.history.contains { $0.sessionID == session.id && $0.command == command },
                                  "Closing a session must first save its final interaction")
                 }
+                model.closeAll()
             }
         }
         // Local EOF, including the lifetime of the final pane, follows the same route.
@@ -98,7 +105,64 @@ struct NativeRegressionTests {
         try await wait { local.connected }
         local.terminal.send(source: local.terminal, data: [4][...])
         try await wait { model.sessions.isEmpty }
-        print("PASS real bash/zsh/sh exit, exit 7, exit 255 and local EOF close tabs; command text does not")
+        print("PASS real bash/zsh/sh exit and EOF close tabs; nonzero exits retain context without retry")
+
+        // A real child shell crash must keep the tab and persist the final command/output.
+        for shell in ["/bin/bash", "/bin/zsh"] {
+            let crash = TerminalSession(host: nil, launch: try launch(shell: shell), settings: AppSettings(), directory: model.workingDirectory)
+            model.addSession(crash); crash.start()
+            try await wait { crash.connected }
+            crash.send("ulimit -c 0; printf 'crash-context-final\\n'; kill -ABRT $$", execute: true)
+            try await wait { crash.ended }
+            precondition(model.sessions.contains { $0.id == crash.id } && !crash.reconnecting)
+            let report = try Data(contentsOf: crash.diagnosticURL!)
+            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+            let context = try decoder.decode(TerminalDiagnostic.self, from: report)
+            precondition(context.shellExitCode == 134 && context.processExitCode == 134)
+            precondition(context.terminalTail.contains("crash-context-final"))
+            precondition(context.interactions.first?.command.contains("kill -ABRT") == true)
+            let saved = crash.diagnosticURL!
+            model.closeAll()
+            precondition(FileManager.default.fileExists(atPath: saved.path), "Closing a pane cannot delete its report")
+        }
+        print("PASS actual bash/zsh SIGABRT keeps pane, final command/output and persistent exit context")
+
+        // Exiting immediately after a large write must drain queued PTY output before saving.
+        for _ in 0..<5 {
+            let token = UUID().uuidString
+            var burstLaunch = try launch(shell: nil, token: token)
+            burstLaunch.arguments = ["-c", "awk 'BEGIN { for(i=0;i<15000;i++) print \"burst-output-line\"; print \"FINAL-PTY-CONTEXT\"; exit 9 }'"]
+            let burst = TerminalSession(host: nil, launch: burstLaunch, settings: AppSettings(), directory: model.workingDirectory)
+            model.addSession(burst); burst.start()
+            try await wait { burst.ended }
+            let text = try String(contentsOf: burst.diagnosticURL!, encoding: .utf8)
+            precondition(text.contains("FINAL-PTY-CONTEXT"), "Process exit overtook pending PTY output")
+            model.closeAll()
+        }
+        print("PASS output bursts preserve the final PTY bytes before exit reporting")
+
+        // Exercise EOF before process exit and a parent leaving a background child.
+        // macOS may revoke the slave immediately, before the drain timeout is needed.
+        for command in [
+            "printf 'EARLY-EOF'; exec </dev/null >/dev/null 2>&1; sleep 0.3; exit 9",
+            "trap '' HUP; sleep 4 & printf 'HELD-PTY'; exit 9"
+        ] {
+            var edgeLaunch = try launch(shell: nil)
+            edgeLaunch.arguments = ["-c", command]
+            let edge = TerminalSession(host: nil, launch: edgeLaunch, settings: AppSettings(), directory: model.workingDirectory)
+            model.addSession(edge)
+            let started = Date()
+            edge.start()
+            try await wait { edge.ended }
+            let elapsed = Date().timeIntervalSince(started)
+            precondition(elapsed < 3.5, "A background descendant must not hold the exit notification indefinitely")
+            let data = try Data(contentsOf: edge.diagnosticURL!)
+            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+            let context = try decoder.decode(TerminalDiagnostic.self, from: data)
+            precondition(context.processExitCode == 9 && !context.terminalTail.isEmpty)
+            model.closeAll()
+            print("PASS PTY completion ordering with bounded descendant lifetime (\(elapsed)s)")
+        }
 
         let retry = TerminalSession(host: Host(name: "offline", address: "127.0.0.1"),
                                     launch: try launch(shell: nil), settings: AppSettings(), directory: model.workingDirectory)

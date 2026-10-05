@@ -143,6 +143,61 @@ final class CoreTests {
         _ = recorder.feed(Array("\u{1b}]777;bozhou;ours;command;/bin/bash;exit 7\u{7}".utf8))
         recorder.finish(exitCode: 7)
         XCTAssertEqual(records.last?.exitCode, 7)
+        let partial = "\u{1b}]777;bozhou;ours;"
+        _ = recorder.feed(Array("tail".utf8))
+        _ = recorder.feed(Array(partial.utf8))
+        recorder.finish()
+        XCTAssertTrue(String(decoding: recorder.recentOutput, as: UTF8.self).hasSuffix("tail" + partial))
+        let finished = recorder.recentOutput
+        recorder.finish()
+        XCTAssertEqual(recorder.recentOutput, finished)
+    }
+    func testTerminalDiagnosticPersistence() throws {
+        let secret = "fake-private-password"
+        let oversized = secret + String(repeating: "中文", count: 30_000) + secret
+        var interaction = Interaction(hostName: secret, sessionID: UUID(), shell: "/bin/zsh",
+                                      command: oversized, output: oversized, hostname: secret)
+        interaction.date = Date(timeIntervalSince1970: 123)
+        let context = TerminalDiagnostic(
+            sessionID: UUID(), connectionID: "../\(secret)", hostID: nil, hostName: secret, shell: "/bin/zsh",
+            reason: "shell_nonzero_exit", waitStatus: 134 << 8, shellExitCode: 134, connectedSeconds: 2,
+            columns: 80, rows: 24, terminalTail: oversized, sshTail: oversized,
+            interactions: Array(repeating: interaction, count: 8), secrets: [secret, ""])
+        XCTAssertEqual(context.interactions.count, 5)
+        XCTAssertTrue(context.terminalTail.utf8.count <= 65536 && context.sshTail.utf8.count <= 16384)
+        XCTAssertTrue(context.interactions.allSatisfy { $0.command.utf8.count <= 4096 && $0.output.utf8.count <= 8192 && $0.truncated })
+        XCTAssertEqual(context.processExitCode, 134)
+        XCTAssertNil(context.processSignal)
+        for (status, code) in [(Int32(0), 0), (7 << 8, 7), (255 << 8, 255), (6, 134), (6 | 0x80, 134)] {
+            XCTAssertEqual(TerminalDiagnostic.exitCode(status), code)
+        }
+        XCTAssertNil(TerminalDiagnostic.exitCode(nil))
+        let directory = root.appendingPathComponent("reports")
+        let first = try context.save(in: directory)
+        let bytes = try Data(contentsOf: first)
+        XCTAssertTrue(!String(decoding: bytes, as: UTF8.self).contains(secret))
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(TerminalDiagnostic.self, from: bytes)
+        XCTAssertEqual(decoded.schemaVersion, 1)
+        XCTAssertEqual(decoded.sessionID, context.sessionID)
+        XCTAssertEqual(decoded.terminalTail, context.terminalTail)
+        XCTAssertEqual(decoded.interactions, context.interactions)
+        XCTAssertTrue(first.lastPathComponent.hasSuffix(".terminal-context.json"))
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: first.path)[.posixPermissions] as? Int, 0o600)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? Int, 0o700)
+        // Preserve unrelated logs and always retain the just-written report, even if
+        // another report has a future mtime (e.g. after a system clock correction).
+        let raw = directory.appendingPathComponent("original.ssh.log")
+        try Data("original-log".utf8).write(to: raw)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(3600)], ofItemAtPath: first.path)
+        var newest = first
+        for _ in 0..<23 { newest = try context.save(in: directory) }
+        let reports = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        XCTAssertEqual(reports.filter { $0.lastPathComponent.hasSuffix(".terminal-context.json") }.count, 20)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newest.path))
+        XCTAssertEqual(TerminalDiagnostic.tail(of: raw, maximumBytes: 3), "log")
+        XCTAssertEqual(TerminalDiagnostic.tail(of: raw, maximumBytes: 0), "")
+        XCTAssertEqual(TerminalDiagnostic.tail(of: root.appendingPathComponent("absent")), "")
     }
     func testPacketHandlesUnicodeAndRejectsTruncation() throws {
         var packet = Packet()

@@ -16,7 +16,7 @@ struct LogsPage: View {
     var body: some View {
         VStack(spacing: 0) {
             Picker("日志类型", selection: $rawSSH) {
-                Text("SSH 原始日志").tag(true)
+                Text("SSH 与异常日志").tag(true)
                 Text("应用事件").tag(false)
             }.pickerStyle(.segmented).frame(width: 300).padding(.top, 20)
             if rawSSH { SSHLogsPage() } else { appEvents }

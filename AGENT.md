@@ -44,6 +44,7 @@ python3 --version
 | `SFTPView.swift`、`ServerTransferView.swift` | 文件浏览和双服务器传输；异步结果用 generation 隔离 |
 | `ConnectionBuilder.swift` | 参数校验、展开跳板、生成每次会话独立的 SSHLaunch |
 | `ShellIntegration.swift`、`SystemProbe.swift` | Shell 启动 Hook、OSC 字节流解析、登录时只读系统信息采集 |
+| `TerminalDiagnostics.swift` | 异常退出状态、有限上下文、私有日志落盘与保留数量 |
 | `SFTPClient.swift` | SFTP v3 actor；专属 DispatchQueue 执行阻塞管道 IO |
 | `Store.swift`、`Models.swift` | SQLite、Codable 模型、路径与设置 |
 | `PasswordCache.swift`、`BozhouAskPass/main.swift` | 逐主机密码复用、认证 UI 与指纹确认 |
@@ -87,7 +88,8 @@ sequenceDiagram
 
 - `TerminalSession.start()` 必须拒绝已关闭或已结束的会话，防止视图排队的迟到启动创建后台进程。
 - 每次 SSH 重连重新构建配置和 PTY；旧进程回调用 `source === terminal` 等条件排除。不得重放用户命令。
-- 重连等待依次为 5、10、30、60、120 秒，用尽后由用户手动发起。Shell 外层临时启动脚本在退出时发送带会话 token 的完成标记，区分 `exit 255` 与传输失败；收到进程结束后先保存最后交互，再关闭标签并修正分屏/焦点。
+- 重连等待依次为 5、10、30、60、120 秒，用尽后由用户手动发起。Shell 外层临时启动脚本在退出时发送带会话 token 的完成标记，区分 `exit 255` 与传输失败。只有状态 0 自动关闭标签；非零或未知状态先完成交互记录并保存上下文，保留窗格。Shell 非零退出不触发传输重试。
+- PTY 退出通知必须晚于 EOF 和已排队输出交付；后台子进程持有 slave 时最多等 2 秒，然后取消读取并交付尾部。SwiftTerm 改动只写入 `Patches/`。
 - SFTP 取消关闭传输；连接、目录、进度和错误回调均要验证 generation，不能让旧任务覆盖新任务状态。
 - SFTPTransport 的启动与取消通过锁协调；管道 IO 不进入主线程，帧大小、超时、取消与 SIGPIPE 保护不可删除。
 - 服务器间传输使用有界内存、目标临时文件及最终 rename；失败尽力清理并告知残留路径，不覆盖已有文件。
@@ -100,6 +102,7 @@ sequenceDiagram
 - AskPass 使用 `Store.savePassword` 仅更新凭据字段，不能回写旧 Host 快照覆盖其他字段。
 - 本地转发绑定 `127.0.0.1`，端口冲突使连接失败；SFTP 连接不启动转发。
 - 不改写用户或服务器持久化 Shell 配置；不自动安装插件或远端 Agent。
+- Zsh 使用原生 `preexec_functions` / `precmd_functions`，不得复制或替换用户 `precmd`；Hook 选项用 `emulate -L zsh` 隔离，内部变量使用 `__bz_` 前缀。临时启动文件由启动脚本兜底清理。用户主动覆盖 Bash `PROMPT_COMMAND` 或清空 Hook 数组允许记录降级，不拦截配置操作。
 
 ## 数据与兼容性
 
@@ -111,6 +114,7 @@ sequenceDiagram
 - 数据目录迁移使用 SQLite backup API，包含已提交 WAL；目标需为空、互不包含，先校验复制结果再切换指针，保留原目录。
 - `Scripts/migrate_workspace.py` 仅用于旧开发工作空间 `.runtime/app` 到默认目录的安装兼容，不覆盖已有数据。
 - 会话目录可清理，SSH 原始日志单独保留；应用结构化日志有轮转。
+- 异常上下文独立于历史开关保存在工作空间 `logs/*.terminal-context.json`，仅当前用户读写（0600），最多 20 份。只保留终端尾部 64 KiB、SSH 尾部 16 KiB、本次连接最近 5 条交互（每条命令 4 KiB / 输出 8 KiB）；替换当前主机保存密码，不采集环境、SSH 配置或按键。关闭会话不能删除报告；未知敏感业务输出需由用户在分享前检查。
 
 ## 构建与依赖
 
@@ -128,6 +132,7 @@ sequenceDiagram
 | 变更范围 | 命令 |
 | --- | --- |
 | 核心逻辑、数据、解析、Shell | `bash Scripts/test.sh --unit` |
+| Shell 真实 PTY、嵌套 Shell、Vim、粘贴、尺寸压力 | `bash Scripts/test.sh --shell-stability` |
 | SSH、认证、多跳、SFTP、转发 | `bash Scripts/test.sh` |
 | 编辑绑定、终端关闭、取消回调 | `bash Scripts/test_regressions.sh` |
 | 原生终端输入 | `bash Scripts/test_native.sh` |
@@ -138,6 +143,8 @@ sequenceDiagram
 
 集成 fixture 仅在 `127.0.0.1` 创建随机端口，不连接真实服务器。不要并发运行同一工作区的构建或 fixture。原生回归脚本自动创建临时 `BOZHOU_DATA_DIR`；布局测试会启动本地 Zsh，可能读取当前用户配置，需要时使用隔离 HOME/ZDOTDIR。
 
+Shell 稳定性测试使用临时 HOME；可通过 `BOZHOU_TEST_BASH` 增加另一版本 Bash，`BOZHOU_TEST_OMZ` 指向已有 Oh My Zsh，不安装或更新插件。测试明细在 `.runtime/shell-stability/`，远端复用脚本须先获得真实主机授权。
+
 真实主机探测入口 `--probe-host`、`--live-terminal` 仅限用户明确授权的工作空间和主机；不是默认测试。不要用带完整参数的进程列表检查未知进程，避免暴露认证信息。
 
 ## Git 与交付
@@ -145,6 +152,7 @@ sequenceDiagram
 - `main` 保持可构建；常规修改使用短分支和 PR。不要在后续任务中再次重建历史。
 - 提交使用 Conventional Commits；Git author/committer 为 `Zhenxiong Tian <sancpp@qq.com>`，不要在 message 中重复 `Author:`。GPT-6-Astra 实质参与的提交添加 `Co-authored-by: GPT-6-Astra <noreply@openai.com>` 和 `Signed-off-by: Zhenxiong Tian <sancpp@qq.com>` trailers，并使用维护者密钥做加密签名。AI 邮箱仅为协作审计标识，不表示 GitHub 账号或责任主体。
 - `release/vX.Y.Z` 使用 signed annotated tag，必须匹配 `VERSION`，指向最终通过测试的提交。
+- `CHANGELOG.md` 最新章节对应当前发布版本；Release 工作流将该章节作为发布说明。
 - `.github/workflows/ci.yml` 仅验证 PR / main；`.github/workflows/release.yml` 仅由 `release/v*` tag push 触发，测试通过后以 `contents: write` 创建公开 Release，并附带 Apple Silicon ZIP、SHA-256 与 MD5 校验文件。
 - Actions 使用各官方 README 推荐的稳定大版本标签，Dependabot 更新 Actions 和子模块。更新 runner/Xcode 时核实实际可用版本。
 - 远端分支保护、必需检查与私密漏洞报告开关属于 GitHub 仓库设置，不能声称 YAML 已替代这些配置。

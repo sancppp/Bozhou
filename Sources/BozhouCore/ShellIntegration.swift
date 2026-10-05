@@ -13,22 +13,25 @@ public enum ShellIntegration {
     }()
 
     // Shell builtins only: no base64/tr processes per command. Escape protocol separators first.
-    private static func hooks(token: String, shell: String) -> String {
+    private static func hooks(token: String, shell: String, zsh: Bool = false) -> String {
         """
         __bz_preexec() {
-          local cmd="$1"
-          cmd="${cmd//\\%/%25}"
-          cmd="${cmd//;/%3B}"
-          cmd="${cmd//$'\\e'/%1B}"
-          cmd="${cmd//$'\\a'/%07}"
-          cmd="${cmd//$'\\n'/%0A}"
-          cmd="${cmd//$'\\r'/%0D}"
-          builtin printf '\\033]777;bozhou;\(token);command;%s;%s\\007' "\(shell)" "$cmd"
+          \(zsh ? "builtin emulate -L zsh" : "")
+          builtin local __bz_command="$1"
+          __bz_command="${__bz_command//\\%/%25}"
+          __bz_command="${__bz_command//;/%3B}"
+          __bz_command="${__bz_command//$'\\e'/%1B}"
+          __bz_command="${__bz_command//$'\\a'/%07}"
+          __bz_command="${__bz_command//$'\\n'/%0A}"
+          __bz_command="${__bz_command//$'\\r'/%0D}"
+          builtin printf '\\033]777;bozhou;\(token);command;%s;%s\\007' "\(shell)" "$__bz_command"
+          return 0
         }
         __bz_precmd() {
-          local code=$?
-          builtin printf '\\033]777;bozhou;\(token);end;%s\\007' "$code"
-          return "$code"
+          builtin local __bz_code=$?
+          \(zsh ? "builtin emulate -L zsh" : "")
+          builtin printf '\\033]777;bozhou;\(token);end;%s\\007' "$__bz_code"
+          return \(zsh ? "0" : "\"$__bz_code\"")
         }
         """
     }
@@ -51,6 +54,7 @@ public enum ShellIntegration {
             ;;
           */zsh)
             bz_dir=$(mktemp -d "${TMPDIR:-/tmp}/bozhou.XXXXXXXX") || exit 1
+            trap 'rm -f -- "$bz_dir/.zshrc" "$bz_dir/.zshenv"; rmdir -- "$bz_dir" 2>/dev/null' 0
             export BOZHOU_OLD_ZDOTDIR="${ZDOTDIR:-$HOME}"
             export BOZHOU_BOOTDIR="$bz_dir"
             cat >"$bz_dir/.zshenv" <<'BOZHOU_ENV'
@@ -105,24 +109,15 @@ public enum ShellIntegration {
         rm -f -- "$__bz_bootdir/.zshrc" "$__bz_bootdir/.zshenv"
         rmdir -- "$__bz_bootdir" 2>/dev/null
         unset __bz_bootdir
-        \(hooks(token: token, shell: "${BOZHOU_SHELL:-/bin/zsh}"))
-        # precmd() runs before precmd_functions. Wrap it to capture the original status,
-        # then return that status so existing prompt hooks (including themes) see it.
-        if (( $+functions[precmd] )); then
-          functions[__bz_original_precmd]=$functions[precmd]
-        fi
-        precmd() {
-          local code=$?
-          __bz_status "$code"
-          __bz_precmd
-          if (( $+functions[__bz_original_precmd] )); then
-            __bz_status "$code"
-            __bz_original_precmd
-          fi
-          return "$code"
-        }
-        __bz_status() { return "$1"; }
+        () {
+        builtin emulate -L zsh
+        \(hooks(token: token, shell: "${BOZHOU_SHELL:-/bin/zsh}", zsh: true))
+        # Zsh passes the original status to each native precmd hook. Do not copy or
+        # replace the user's precmd: themes may redefine it when reloaded.
+        # Return success so a failed command cannot suppress later prompt hooks.
         preexec_functions=(__bz_preexec ${preexec_functions:#__bz_preexec})
+        precmd_functions=(__bz_precmd ${precmd_functions:#__bz_precmd})
+        }
         printf '\\033]777;bozhou;\(token);ready;zsh\\007'
         """
     }
@@ -182,6 +177,8 @@ public final class InteractionRecorder {
     }
 
     public func finish(exitCode: Int? = nil) {
+        recentOutput += pending
+        if recentOutput.count > maximumOutput { recentOutput.removeFirst(recentOutput.count - maximumOutput) }
         appendOutput(pending); pending.removeAll()
         if var current = active {
             current.output = Self.clean(String(decoding: output, as: UTF8.self))

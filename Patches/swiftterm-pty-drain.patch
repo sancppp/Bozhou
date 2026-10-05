@@ -1,0 +1,113 @@
+--- a/Sources/SwiftTerm/LocalProcess.swift
++++ b/Sources/SwiftTerm/LocalProcess.swift
+@@ -93,6 +93,12 @@
+     private var pendingChunkIndex: Int = 0
+     private var pendingScheduled = false
+     private let pendingLock = NSLock()
++    // These completion fields are confined to dispatchQueue.
++    private var exited = false
++    private var readEnded = false
++    private var completionDelivered = false
++    private var waitStatus: Int32?
++    private var drainTimeout: DispatchWorkItem?
+     
+     #if false //canImport(Subprocess)
+     // Swift Subprocess related properties
+@@ -149,6 +155,7 @@
+                 pendingChunkIndex = 0
+                 pendingScheduled = false
+                 pendingLock.unlock()
++                deliverTerminationIfDrained()
+                 return
+             }
+             pendingLock.unlock()
+@@ -240,6 +247,8 @@
+             // Re-schedule the read on transient errors to keep the chain alive
+             if !done, running {
+                 io?.read(offset: 0, length: readSize, queue: readQueue, ioHandler: childProcessRead)
++            } else {
++                dispatchQueue.async { [weak self] in self?.readDidEnd() }
+             }
+             return
+         }
+@@ -249,13 +258,7 @@
+         }
+         
+         if data.count == 0 {
+-            childfd = -1
+-            if running {
+-                // Keep process monitor alive so the exit event can still deliver
+-                // processTerminated to clients when PTY EOF arrives first.
+-                childStopped(cancelProcessMonitor: false)
+-                // delegate.processTerminated (self, exitCode: nil)
+-            }
++            dispatchQueue.async { [weak self] in self?.readDidEnd() }
+             return
+         }
+         var b: [UInt8] = Array.init(repeating: 0, count: data.count)
+@@ -288,6 +291,7 @@
+ #endif
+ 
+     deinit {
++        drainTimeout?.cancel()
+ #if os(macOS)
+         childMonitor?.cancel()
+         childMonitor = nil
+@@ -297,11 +301,45 @@
+     func processTerminated ()
+     {
+         var n: Int32 = 0
+-        waitpid (shellPid, &n, WNOHANG)
+-        delegate?.processTerminated(self, exitCode: n)
++        let result = waitpid (shellPid, &n, WNOHANG)
++        guard result != 0 else { return }
++        waitStatus = result == shellPid ? n : nil
++        exited = true
+         childStopped()
++        deliverTerminationIfDrained()
++        // A background descendant can keep the slave open after its parent exits.
++        // Bound that case, while allowing normal EOF and queued display bytes to drain.
++        if !completionDelivered {
++            let timeout = DispatchWorkItem { [weak self] in
++                guard let self, !self.completionDelivered else { return }
++                self.io?.close(flags: .stop)
++                // DispatchIO delivers the final cancelled read before readDidEnd.
++            }
++            drainTimeout = timeout
++            dispatchQueue.asyncAfter(deadline: .now() + 2, execute: timeout)
++        }
+     }
+ 
++    private func readDidEnd() {
++        readEnded = true
++        deliverTerminationIfDrained()
++    }
++
++    private func deliverTerminationIfDrained() {
++        guard exited, readEnded, !completionDelivered else { return }
++        pendingLock.lock()
++        let pending = pendingScheduled || pendingChunkIndex < pendingChunks.count
++        pendingLock.unlock()
++        guard !pending else { return }
++        completionDelivered = true
++        drainTimeout?.cancel()
++        drainTimeout = nil
++        io?.close()
++        io = nil
++        childfd = -1
++        delegate?.processTerminated(self, exitCode: waitStatus)
++    }
++
+     /// Indicates if the child process is currently running
+     public private(set) var running: Bool = false
+     
+@@ -473,6 +511,9 @@
+ 
+     public func terminate()
+     {
++        completionDelivered = true
++        drainTimeout?.cancel()
++        drainTimeout = nil
+         #if false //canImport(Subprocess)
+         if let task = subprocessTask {
+             task.cancel()

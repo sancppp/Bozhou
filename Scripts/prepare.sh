@@ -15,3 +15,4 @@ cp Vendor/bash-preexec/bash-preexec.sh Sources/BozhouCore/Resources/bash-preexec
 mkdir -p .runtime/SwiftTerm
 rsync -a --delete Vendor/SwiftTerm/Sources/ .runtime/SwiftTerm/Sources/
 git apply --directory=.runtime/SwiftTerm Patches/swiftterm-app-resources.patch
+git apply --directory=.runtime/SwiftTerm Patches/swiftterm-pty-drain.patch

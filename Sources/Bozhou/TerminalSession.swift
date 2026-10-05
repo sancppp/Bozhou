@@ -55,12 +55,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
     var onFocus: (() -> Void)?
     private var profile: SystemProfile?
     var logURL: URL? { launch.logURL }
+    var diagnosticsDirectory: URL?
+    @Published private(set) var diagnosticURL: URL?
     var makeLaunch: (() throws -> SSHLaunch)?
     private var settings: AppSettings
     private var fontSizeOverride: Double?
     private var retry = ReconnectPolicy()
     private var retryTask: Task<Void, Never>?
     private var readyAt: Date?
+    private var attemptStartedAt = Date()
     private var closed = false
     private var started = false
     var title: String { host?.name ?? "本地终端" }
@@ -119,10 +122,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
     }
     func start() {
         guard !started, !closed, !ended else { return }; started = true
+        attemptStartedAt = Date()
         terminal.startProcess(executable: launch.executable, args: launch.arguments,
                               environment: launch.environment.map { "\($0.key)=\($0.value)" }, currentDirectory: directory.path)
         if !terminal.process.running {
-            ended = true; status = "无法创建终端进程"; launch.cleanup()
+            ended = true; status = "无法创建终端进程"
+            saveDiagnostic(reason: "launch_failed", waitStatus: nil)
+            onExit?(status); launch.cleanup()
         }
     }
     func close(immediately: Bool = false) {
@@ -176,16 +182,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
     func processTerminated(source: TerminalView, exitCode: Int32?) {
         guard source === terminal, !ended, !closed else { return }
         // SwiftTerm 1.13 exposes waitpid's status on macOS, rather than WEXITSTATUS.
-        let code = exitCode.map { ($0 & 0x7f) == 0 ? ($0 >> 8) & 0xff : 128 + ($0 & 0x7f) }
-        recorder.finish(exitCode: recorder.shellExitCode ?? (code == 255 ? nil : code.map(Int.init)))
+        let code = TerminalDiagnostic.exitCode(exitCode)
+        recorder.finish(exitCode: recorder.shellExitCode ?? (code == 255 ? nil : code))
         connected = false; ended = true
-        // The wrapper reports shell completion separately from OpenSSH's transport status.
-        // This also distinguishes `exit 255` from a network failure, without inspecting input.
-        let completed = recorder.shellExitCode != nil || code == 0
-        status = code == 0 ? "会话已结束" : "连接中断（\(code.map(String.init) ?? "未知")）"
-        let diagnostic = logURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
-        if code != 0, !diagnostic.isEmpty { terminal.feed(text: "\r\n" + diagnostic.suffix(8192).replacingOccurrences(of: "\n", with: "\r\n")) }
-        onExit?("SSH process exited with status \(code.map(String.init) ?? "unknown")"); launch.cleanup()
+        // A wrapper completion marker also occurs when the child shell crashes. Preserve
+        // every nonzero/unknown exit; only successful completion can close its pane.
+        let completed = code == 0 && (recorder.shellExitCode == nil || recorder.shellExitCode == 0)
+        status = completed ? "会话已结束" : "会话异常结束（\(code.map(String.init) ?? "未知")）"
+        let diagnostic = TerminalDiagnostic.tail(of: logURL)
+        if !completed {
+            saveDiagnostic(reason: recorder.shellExitCode == nil ? "transport_or_process_failure" : "shell_nonzero_exit",
+                           waitStatus: exitCode)
+            if !diagnostic.isEmpty { terminal.feed(text: "\r\n" + diagnostic.suffix(8192).replacingOccurrences(of: "\n", with: "\r\n")) }
+        }
+        onExit?("SSH process exited with status \(code.map(String.init) ?? "unknown")\(diagnosticURL.map { "; context: \($0.lastPathComponent)" } ?? "")")
+        launch.cleanup()
         if completed {
             cancelReconnect()
             onCompletion?()
@@ -195,7 +206,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
         // Authentication diagnostics only apply before shell readiness. Remote command output
         // may itself contain "permission denied" and must not suppress a later network retry.
         let output = readyAt == nil ? diagnostic + String(decoding: recorder.recentOutput.suffix(8192), as: UTF8.self) : ""
-        if host != nil, let delay = retry.nextDelay(exitCode: code.map(Int.init), output: output, enabled: settings.autoReconnect) {
+        // A shell's explicit 255 (or crash) is not a transport failure to retry.
+        if host != nil, recorder.shellExitCode == nil,
+           let delay = retry.nextDelay(exitCode: code, output: output, enabled: settings.autoReconnect) {
             reconnecting = true
             status += " · \(delay) 秒后重试（\(retry.attempts)/5）"
             onLifecycle?("Retry \(retry.attempts)/5 in \(delay)s")
@@ -206,6 +219,24 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
             }
         } else if host != nil, settings.autoReconnect, retry.exhausted {
             status += " · 自动重连已用尽，请手动重新连接"
+        }
+    }
+    private func saveDiagnostic(reason: String, waitStatus: Int32?) {
+        guard let destination = diagnosticsDirectory ?? logURL?.deletingLastPathComponent() else { return }
+        let diagnostic = TerminalDiagnostic(
+            sessionID: id, connectionID: launch.token, hostID: host?.id, hostName: title,
+            shell: shell.isEmpty ? (host?.shell ?? "") : shell, reason: reason, waitStatus: waitStatus,
+            shellExitCode: recorder.shellExitCode, connectedSeconds: readyAt.map { Date().timeIntervalSince($0) },
+            columns: terminal.getTerminal().cols, rows: terminal.getTerminal().rows,
+            terminalTail: InteractionRecorder.clean(String(decoding: recorder.recentOutput, as: UTF8.self)),
+            sshTail: TerminalDiagnostic.tail(of: logURL),
+            interactions: recent.filter { $0.date >= attemptStartedAt }, secrets: [host?.password ?? ""])
+        do {
+            diagnosticURL = try diagnostic.save(in: destination)
+            status += " · 已保存异常上下文"
+        } catch {
+            status += " · 上下文保存失败：\(error.localizedDescription)"
+            onLifecycle?("Terminal context write failed: \(error.localizedDescription)")
         }
     }
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
@@ -287,6 +318,7 @@ struct TerminalPane: View {
     @ObservedObject var session: TerminalSession
     @State private var showInteractions = true
     @State private var showLog = false
+    @State private var showDiagnostic = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         GeometryReader { geometry in pane(width: geometry.size.width) }
@@ -320,6 +352,9 @@ struct TerminalPane: View {
                     .help(width < 760 ? "放宽终端窗格以显示交互记录" : "显示交互记录")
                 if session.logURL != nil {
                     Button { showLog = true } label: { Image(systemName: "doc.text") }.help("原始 SSH 日志")
+                }
+                if session.diagnosticURL != nil {
+                    Button { showDiagnostic = true } label: { Image(systemName: "exclamationmark.bubble") }.help("异常退出上下文")
                 }
                 if session.reconnecting {
                     Button("停止重试") { session.cancelReconnect() }
@@ -374,6 +409,9 @@ struct TerminalPane: View {
         }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: showInteractions)
             .sheet(isPresented: $showLog) {
                 if let url = session.logURL { RawSSHLogView(url: url) }
+            }
+            .sheet(isPresented: $showDiagnostic) {
+                if let url = session.diagnosticURL { RawSSHLogView(url: url, title: "异常退出上下文") }
             }
             .onAppear { if model.splitSession != nil { showInteractions = false } }
             .onChange(of: model.splitSession) { _, value in if value != nil { showInteractions = false } }
