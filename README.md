@@ -14,8 +14,6 @@
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-**English is the default language**, including on Chinese macOS installations. Choose **Settings → Language → App language → 简体中文** and restart Bozhou to use Simplified Chinese. The preference is saved in the current workspace. Host names, commands and server output retain their original text.
-
 ![Bozhou host workspace](Screenshots/usage/01-host-workspace.png)
 
 > These screenshots show the Simplified Chinese interface in an isolated demo workspace. All hosts, accounts, addresses and metrics are fictional.
