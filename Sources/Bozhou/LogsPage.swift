@@ -15,9 +15,9 @@ struct LogsPage: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("日志类型", selection: $rawSSH) {
-                Text("SSH 与异常日志").tag(true)
-                Text("应用事件").tag(false)
+            Picker(L10n.tr("Log type"), selection: $rawSSH) {
+                Text(L10n.tr("SSH & Exit Logs")).tag(true)
+                Text(L10n.tr("App Events")).tag(false)
             }.pickerStyle(.segmented).frame(width: 300).padding(.top, 20)
             if rawSSH { SSHLogsPage() } else { appEvents }
         }
@@ -25,32 +25,32 @@ struct LogsPage: View {
     private var appEvents: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                PageHeader(title: "运行日志", detail: "连接生命周期与错误记录；不记录密码、按键或终端输出。")
-                Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([model.log.url]) }
-                Button("刷新") { revision += 1 }
+                PageHeader(title: L10n.tr("Logs"), detail: L10n.tr("Connection lifecycle and error events. Passwords, keystrokes and terminal output are not recorded here."))
+                Button(L10n.tr("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([model.log.url]) }
+                Button(L10n.tr("Refresh")) { revision += 1 }
             }
             HStack {
-                TextField("搜索日志内容或分类", text: $search).textFieldStyle(.roundedBorder)
-                Picker("级别", selection: $level) {
-                    Text("全部级别").tag(Optional<LogLevel>.none)
+                TextField(L10n.tr("Search log messages or categories"), text: $search).textFieldStyle(.roundedBorder)
+                Picker(L10n.tr("Level"), selection: $level) {
+                    Text(L10n.tr("All levels")).tag(Optional<LogLevel>.none)
                     ForEach(LogLevel.allCases) { Text($0.title).tag(Optional($0)) }
                 }.frame(width: 155)
-                Picker("分类", selection: $category) {
-                    Text("全部分类").tag("")
+                Picker(L10n.tr("Category"), selection: $category) {
+                    Text(L10n.tr("All categories")).tag("")
                     ForEach(Array(Set(entries.map(\.category))).sorted(), id: \.self) { Text($0).tag($0) }
                 }.frame(width: 155)
-                Toggle("自动刷新", isOn: $autoRefresh).toggleStyle(.checkbox)
+                Toggle(L10n.tr("Auto refresh"), isOn: $autoRefresh).toggleStyle(.checkbox)
             }
             Table(filtered, selection: $selected) {
-                TableColumn("时间") { Text($0.date, format: .dateTime.hour().minute().second()).monospacedDigit() }.width(85)
-                TableColumn("级别") { entry in
+                TableColumn(L10n.tr("Time")) { Text($0.date, format: .dateTime.hour().minute().second()).monospacedDigit() }.width(85)
+                TableColumn(L10n.tr("Level")) { entry in
                     Text(entry.level.title).foregroundStyle(entry.level == .error ? .red : entry.level == .warning ? .orange : .secondary)
                 }.width(55)
-                TableColumn("分类", value: \.category).width(65)
-                TableColumn("内容", value: \.message)
+                TableColumn(L10n.tr("Category"), value: \.category).width(65)
+                TableColumn(L10n.tr("Message"), value: \.message)
             }
             .overlay {
-                if filtered.isEmpty { Text(search.isEmpty ? "暂无符合筛选条件的日志" : "没有匹配的日志").foregroundStyle(.secondary) }
+                if filtered.isEmpty { Text(search.isEmpty ? L10n.tr("No logs match these filters") : L10n.tr("No matching logs")).foregroundStyle(.secondary) }
             }
             if let entry = entries.first(where: { $0.id == selected }) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -61,7 +61,7 @@ struct LogsPage: View {
                     }.frame(maxHeight: 120)
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(.background, in: RoundedRectangle(cornerRadius: 8))
             }
-            Text("\(filtered.count) / \(entries.count) 条 · 最新记录在前").font(.caption).foregroundStyle(.secondary)
+            Text(L10n.tr("Records: \(filtered.count) / \(entries.count) · Newest first")).font(.caption).foregroundStyle(.secondary)
         }.padding(28)
             .task(id: revision) { await load() }
             .task(id: autoRefresh) {

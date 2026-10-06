@@ -4,7 +4,7 @@
 
 ## 项目基线
 
-- 原生 macOS SSH 工作台，中文界面；SwiftUI / AppKit、系统 OpenSSH、SwiftTerm、SQLite。
+- 原生 macOS SSH 工作台，默认英语、可选简体中文；SwiftUI / AppKit、系统 OpenSSH、SwiftTerm、SQLite。README 默认英语，中文见 `README.zh-CN.md`。
 - 开源基线 `1.0.0`，主分支 `main`，标签 `release/v1.0.0`。后续版本以 `VERSION` 为准。
 - 运行目标 macOS 14+；编译需 macOS 26 SDK / Xcode 26+。源码对 macOS 26 专有工具栏 API 使用 `#available`。
 - Swift Package 使用 Swift 5 语言模式，`swift-tools-version: 5.9`；不要把清单版本误认为可使用旧 SDK。
@@ -72,6 +72,7 @@ sequenceDiagram
 
 ### 编辑和界面
 
+- 应用文案统一使用 `BozhouCore.L10n.tr("English source key")`；英中资源位于 `Resources/Localization/`，插值用 `{0}`、`{1}`，不能翻译用户数据或协议内容。`AppSettings.language` 缺失或未知时回退英语，重启生效；AskPass 通过 `BOZHOU_LANGUAGE` 继承当前语言。页面和排序使用稳定 rawValue、独立本地化 title，业务判断不能匹配翻译后的文案。
 - **不得为可删除行保留数组下标 Binding**。原 `ForEach($host.forwards)` 在移除行后被 NSTextField 延迟读取，触发数组越界；使用 `Binding.element(snapshot)`，每次按 ID 查找，删除后读快照、忽略写入。
 - 跳板行的移动和删除在执行时按 ID 找当前位置，不捕获旧下标。
 - 顶部保持单行平面工具栏、上下居中；避免重新引入液态玻璃背景和第二层 Header。
@@ -82,6 +83,8 @@ sequenceDiagram
 - 主机树展开状态保存在当前工作空间的 `AppSettings.expandedHostGroups`，通过 `AppModel.setHostGroupExpanded` 即时持久化，切页和重启后恢复。收起父目录保留子目录状态，搜索自动展开不改写记录；重命名/移动和删除须在文件夹事务中同步更新路径。
 - 默认浅色终端背景 `#F1F2F4`，深色 `#0E141F`；不能恢复纯白底。颜色即时作用于已有终端并持久化。
 - 分屏命令作用于焦点窗格；PTY 尺寸与视图同步。
+- `TerminalSession` 持有终端和滚动历史；SwiftUI 通过 `TerminalContainerView` 挂载，不能把挂载/卸载时的零尺寸传给 SwiftTerm，否则极窄列宽重排会挤掉历史。旧容器拆卸时只移除仍属于自己的终端。
+- 字体和颜色未变化时不重复设置，避免清空渲染缓存、重置终端模式和触发布局；输出尾部用有界环形缓存，按需生成快照。
 - `⌘−` / `⌘=` / `⌘+` 缩放焦点终端（10–36 pt），会话内保留；显式修改设置字号重置临时缩放。快捷键不得发往远端。
 
 ### 连接和异步生命周期
@@ -134,7 +137,7 @@ sequenceDiagram
 | 核心逻辑、数据、解析、Shell | `bash Scripts/test.sh --unit` |
 | Shell 真实 PTY、嵌套 Shell、Vim、粘贴、尺寸压力 | `bash Scripts/test.sh --shell-stability` |
 | SSH、认证、多跳、SFTP、转发 | `bash Scripts/test.sh` |
-| 编辑绑定、终端关闭、取消回调 | `bash Scripts/test_regressions.sh` |
+| 编辑绑定、终端切换/滚动历史/关闭释放、取消回调 | `bash Scripts/test_regressions.sh` |
 | 原生终端输入 | `bash Scripts/test_native.sh` |
 | 主机键鼠交互 | `bash Scripts/test_hosts.sh` |
 | 多会话、分屏、尺寸、颜色 | `bash Scripts/test_hosts.sh --layout` |
@@ -153,7 +156,7 @@ Shell 稳定性测试使用临时 HOME；可通过 `BOZHOU_TEST_BASH` 增加另�
 - 提交使用 Conventional Commits；Git author/committer 为 `Zhenxiong Tian <sancpp@qq.com>`，不要在 message 中重复 `Author:`。GPT-6-Astra 实质参与的提交添加 `Co-authored-by: GPT-6-Astra <noreply@openai.com>` 和 `Signed-off-by: Zhenxiong Tian <sancpp@qq.com>` trailers，并使用维护者密钥做加密签名。AI 邮箱仅为协作审计标识，不表示 GitHub 账号或责任主体。
 - `release/vX.Y.Z` 使用 signed annotated tag，必须匹配 `VERSION`，指向最终通过测试的提交。
 - `CHANGELOG.md` 最新章节对应当前发布版本；Release 工作流将该章节作为发布说明。
-- `.github/workflows/ci.yml` 仅验证 PR / main；`.github/workflows/release.yml` 仅由 `release/v*` tag push 触发，测试通过后以 `contents: write` 创建公开 Release，并附带 Apple Silicon ZIP、SHA-256 与 MD5 校验文件。
+- `.github/workflows/ci.yml` 仅验证 PR / main；`.github/workflows/release.yml` 仅由 `release/v*` tag push 触发，测试通过后以 `contents: write` 创建公开 Release，并附带 Apple Silicon ZIP、SHA-256 与 MD5 校验文件。同版本重新发布时更新说明并替换这三个附件；移动已发布 tag 须有用户明确授权。
 - Actions 使用各官方 README 推荐的稳定大版本标签，Dependabot 更新 Actions 和子模块。更新 runner/Xcode 时核实实际可用版本。
 - 远端分支保护、必需检查与私密漏洞报告开关属于 GitHub 仓库设置，不能声称 YAML 已替代这些配置。
 - `Docs/`、`.dbg/`、`panic.log`、历史目标文档、本地数据库、`.runtime/`、`.build/`、`dist/` 均不提交。`Docs/` 可保存本地验收报告，但新会话与构建不能依赖它。

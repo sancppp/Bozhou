@@ -1,21 +1,31 @@
-# 更新记录
+# Changelog
 
 ## 1.1.0
 
-### 终端稳定性与异常诊断
+### Languages and documentation
 
-- Zsh 使用原生 Hook 数组并隔离选项，避免替换用户 `precmd`；Bash 的内部变量避开常用用户变量。
-- PTY 进程退出前完成末尾输出交付，减少异常结束时遗漏命令输出的问题。
-- 非零或未知状态退出时保留终端窗格，并保存退出状态、终端尺寸、最近交互及终端/SSH 日志尾部。
-- 「日志 → SSH 与异常日志」可查看异常上下文；报告仅当前用户可读写，最多保留 20 份，关闭标签后仍可查看。
-- 增加真实 PTY 稳定性回归，覆盖 Bash、Zsh、已有 Oh My Zsh、嵌套交互 Shell、Vim、粘贴、中断和尺寸变化。
+- English is now the default for the UI and README, including when upgrading an existing workspace.
+- Added Simplified Chinese translations for application text, menus, authentication prompts and errors. Choose the app language in Settings and restart to apply it.
+- Preserved the Chinese README as `README.zh-CN.md`.
+- SFTP error handling now uses transport state instead of matching translated messages.
 
-### 界面与安装
+### Terminal stability and diagnostics
 
-- 终端页头固定为两行，主机、连接地址和目录位于第一行，连接状态位于第二行。
-- 源码安装脚本默认安装到 `/Applications/泊舟.app`。
+- Retain terminal sessions, scrollback, alternate-screen state and background output across tab, workspace and split-layout changes.
+- Prevent zero-size view layouts from reflowing and discarding scrollback.
+- Reduce output buffering copies and skip unchanged font and color updates.
+- Use native Zsh hook arrays with isolated options, preserving user `precmd`; avoid common user variable names in Bash hooks.
+- Deliver final PTY output before reporting process termination.
+- Keep terminal panes on nonzero or unknown exits and save exit status, terminal size, recent interactions and terminal/SSH output tails.
+- View reports in **Logs → SSH & Exit Logs**. Keep up to 20 owner-only reports, including after tabs close.
+- Added real PTY regressions for Bash, Zsh, existing Oh My Zsh, nested shells, Vim, paste, interrupts and resizing.
 
-### 使用边界
+### Interface and installation
 
-- 用户配置覆盖 Bash `PROMPT_COMMAND` 或清空 Zsh Hook 数组后，自动命令记录可能停止；重新连接可重新加载 Hook。
-- 已验证的 Shell 和插件组合未出现自发崩溃。曾报告的原始“非法 size”错误尚未原样复现，本版本提供后续分析所需的异常上下文。
+- Keep the terminal header on two rows: host identity and connection details above, connection status below.
+- Source installation defaults to `/Applications/泊舟.app`. The bundle filename remains compatible with existing installations.
+
+### Known limits
+
+- Replacing Bash `PROMPT_COMMAND` or clearing Zsh hook arrays may stop automatic recording. Reconnect to reload hooks.
+- The previously reported “invalid size” crash has not been reproduced exactly. Exit context reports support further diagnosis.

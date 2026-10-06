@@ -5,7 +5,7 @@ public enum LogLevel: String, Codable, CaseIterable, Identifiable, Sendable {
     case info, warning, error
     public var id: String { rawValue }
     public var title: String {
-        switch self { case .info: return "信息"; case .warning: return "警告"; case .error: return "错误" }
+        switch self { case .info: return L10n.tr("Info"); case .warning: return L10n.tr("Warning"); case .error: return L10n.tr("Error") }
     }
 }
 
@@ -31,7 +31,7 @@ public final class AppLog: @unchecked Sendable {
     public let url: URL
     public init(paths: AppPaths) { url = paths.logs.appendingPathComponent("bozhou.log") }
 
-    public func write(_ text: String, level: LogLevel = .info, category: String = "应用") {
+    public func write(_ text: String, level: LogLevel = .info, category: String = L10n.tr("Application")) {
         let message = String(text.replacingOccurrences(of: "\n", with: " ").prefix(4000))
         switch level {
         case .info: logger.info("\(category, privacy: .public): \(message)")
@@ -52,7 +52,7 @@ public final class AppLog: @unchecked Sendable {
         if let handle = try? FileHandle(forWritingTo: url) {
             defer { try? handle.close() }
             do { try handle.seekToEnd(); try handle.write(contentsOf: data) }
-            catch { logger.error("日志写入失败：\(error.localizedDescription)") }
+            catch { logger.error("\(L10n.tr("Could not write log: \(error.localizedDescription)"))") }
         }
     }
 
@@ -66,7 +66,7 @@ public final class AppLog: @unchecked Sendable {
                 // Retain v1 log records during upgrades.
                 let fields = line.split(separator: " ", maxSplits: 1)
                 guard fields.count == 2, let date = legacyDate.date(from: String(fields[0])) else { return nil }
-                return LogEntry(date: date, level: .info, category: "旧版", message: String(fields[1]))
+                return LogEntry(date: date, level: .info, category: L10n.tr("Legacy"), message: String(fields[1]))
             }
         }.suffix(10000).reversed()
     }

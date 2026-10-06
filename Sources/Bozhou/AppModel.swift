@@ -6,8 +6,20 @@ import BozhouCore
 typealias Host = BozhouCore.Host
 
 enum Page: String, CaseIterable, Identifiable {
-    case hosts = "主机", identities = "密钥", snippets = "快捷命令", pins = "交互收藏", history = "命令历史", knownHosts = "已知主机", logs = "运行日志", settings = "设置"
+    case hosts, identities, snippets, pins, history, knownHosts, logs, settings
     var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .hosts: return L10n.tr("Hosts")
+        case .identities: return L10n.tr("Keys")
+        case .snippets: return L10n.tr("Snippets")
+        case .pins: return L10n.tr("Pins")
+        case .history: return L10n.tr("History")
+        case .knownHosts: return L10n.tr("Known Hosts")
+        case .logs: return L10n.tr("Logs")
+        case .settings: return L10n.tr("Settings")
+        }
+    }
     var symbol: String {
         switch self {
         case .hosts: return "server.rack"
@@ -86,9 +98,11 @@ final class AppModel: ObservableObject {
         store = try Store(url: paths.database)
         log = AppLog(paths: paths)
         settings = try store.loadSettings()
+        L10n.configure(settings.language)
+        L10n.configureSystemUI()
         if NSFont(name: settings.fontName, size: settings.fontSize) == nil { settings.fontName = "Menlo-Regular" }
         try reload()
-        log.write("应用启动")
+        log.write(L10n.tr("Application started"))
     }
     func reload() throws {
         hosts = try store.list(Host.self); folders = try store.list(HostFolder.self); identities = try store.list(Identity.self)
@@ -99,7 +113,7 @@ final class AppModel: ObservableObject {
     }
     func report(_ error: Error) {
         self.error = error.localizedDescription
-        log.write("操作失败：\(error.localizedDescription)", level: .error)
+        log.write(L10n.tr("Operation failed: \(error.localizedDescription)"), level: .error)
     }
     func saveHost(_ host: Host) throws {
         var host = host
@@ -110,12 +124,12 @@ final class AppModel: ObservableObject {
             try store.save(host)
         }
         try reload()
-        editorHost = nil; notify("主机已保存")
+        editorHost = nil; notify(L10n.tr("Host saved"))
     }
     func deleteHost(_ host: Host) {
         perform {
             guard !hosts.contains(where: { $0.id != host.id && $0.jumpHosts.contains(host.id) }) else {
-                throw BozhouError.invalid("该主机仍被其他主机用作跳板，请先移除引用")
+                throw BozhouError.invalid(L10n.tr("This host is still used as a jump host. Remove those references first."))
             }
             try store.delete(Host.self, id: host.id); try reload()
         }
@@ -140,7 +154,7 @@ final class AppModel: ObservableObject {
             }
             session.onExit = { [weak self] message in
                 self?.log.write("\(host.name): \(message)", level: .warning, category: "SSH lifecycle")
-                self?.sendNotification(title: "连接已结束", body: host.name)
+                self?.sendNotification(title: L10n.tr("Connection ended"), body: host.name)
             }
             session.onLifecycle = { [weak self] message in self?.log.write("\(host.name): \(message)", category: "SSH lifecycle") }
             addSession(session)
@@ -201,9 +215,9 @@ final class AppModel: ObservableObject {
         var interaction = interaction
         interaction.hostname = displayName(for: interaction).hostname
         guard !pins.contains(where: { $0.interaction.command == interaction.command && $0.interaction.output == interaction.output }) else {
-            notify("相同命令和输出已经收藏"); return
+            notify(L10n.tr("This command and output are already pinned")); return
         }
-        perform { try store.save(Pin(interaction)); pins = try store.list(Pin.self); notify("已保存到交互收藏") }
+        perform { try store.save(Pin(interaction)); pins = try store.list(Pin.self); notify(L10n.tr("Saved to pins")) }
     }
     private func ensureFolders(_ path: String) throws {
         let existing = Set(try store.list(HostFolder.self).map(\.path))
@@ -212,7 +226,7 @@ final class AppModel: ObservableObject {
     func createFolder(_ path: String) {
         perform {
             let normalized = try HostTree.normalize(path)
-            guard !normalized.isEmpty else { throw BozhouError.invalid("请输入文件夹名称") }
+            guard !normalized.isEmpty else { throw BozhouError.invalid(L10n.tr("Enter a folder name")) }
             try ensureFolders(normalized); try reload()
         }
     }
@@ -230,7 +244,7 @@ final class AppModel: ObservableObject {
         perform {
             let target = try HostTree.normalize(destination)
             guard !target.isEmpty, target != path, !HostTree.contains(target, in: path), !groups.contains(target) else {
-                throw BozhouError.invalid("目标文件夹已存在，或路径无效")
+                throw BozhouError.invalid(L10n.tr("Destination folder already exists or the path is invalid"))
             }
             var updated = settings
             updated.expandedHostGroups = Set(settings.expandedHostGroups.map {
@@ -257,7 +271,7 @@ final class AppModel: ObservableObject {
         perform {
             guard !hosts.contains(where: { HostTree.contains($0.group, in: path) }),
                   !groups.contains(where: { $0 != path && HostTree.contains($0, in: path) }) else {
-                throw BozhouError.invalid("只能删除空文件夹，请先移动其中的主机或子文件夹")
+                throw BozhouError.invalid(L10n.tr("Only empty folders can be deleted. Move their hosts or subfolders first."))
             }
             var updated = settings
             updated.expandedHostGroups = settings.expandedHostGroups.filter { !HostTree.contains($0, in: path) }
@@ -272,15 +286,15 @@ final class AppModel: ObservableObject {
     }
     func changeDataLocation(to url: URL) {
         perform {
-            guard sessions.isEmpty, sftpHost == nil else { throw BozhouError.storage("请先关闭所有终端和 SFTP 会话") }
+            guard sessions.isEmpty, sftpHost == nil else { throw BozhouError.storage(L10n.tr("Close all terminal and SFTP sessions first")) }
             guard ProcessInfo.processInfo.environment["BOZHOU_DATA_DIR"] == nil else {
-                throw BozhouError.storage("当前通过 BOZHOU_DATA_DIR 指定目录，请移除此环境变量后再更改")
+                throw BozhouError.storage(L10n.tr("The data directory is set by BOZHOU_DATA_DIR. Remove that variable before changing locations."))
             }
             let copied = try WorkspaceLocation.copy(store: store, from: paths, to: url)
             let newStore = try Store(url: copied.database)
             store = newStore; paths = copied; log = AppLog(paths: copied)
             UserDefaults.standard.set(copied.root.path, forKey: "workspacePath")
-            try reload(); notify("已切换数据位置，原目录保留")
+            try reload(); notify(L10n.tr("Data location changed. Original directory retained."))
         }
     }
     func saveSettings() {

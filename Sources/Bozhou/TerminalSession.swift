@@ -14,7 +14,8 @@ final class RecordingTerminalView: NativeInputTerminalView {
         return accepted
     }
     override func dataReceived(slice: ArraySlice<UInt8>) {
-        let bytes = recorder?.feed(Array(slice)) ?? Array(slice)
+        guard let recorder else { super.dataReceived(slice: slice); return }
+        let bytes = recorder.feed(slice)
         if !bytes.isEmpty { super.dataReceived(slice: bytes[...]) }
     }
     override func viewDidChangeEffectiveAppearance() {
@@ -23,9 +24,11 @@ final class RecordingTerminalView: NativeInputTerminalView {
     }
     func applyColors() {
         let dark = theme == "dark" || (theme == "system" && effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-        nativeBackgroundColor = TerminalAppearance.background(hex: backgroundHex, dark: dark)
-        nativeForegroundColor = TerminalAppearance.foreground(on: nativeBackgroundColor)
-        caretColor = nativeForegroundColor
+        let background = TerminalAppearance.background(hex: backgroundHex, dark: dark)
+        let foreground = TerminalAppearance.foreground(on: background)
+        if nativeBackgroundColor != background { nativeBackgroundColor = background }
+        if nativeForegroundColor != foreground { nativeForegroundColor = foreground }
+        if caretColor != foreground { caretColor = foreground }
     }
     func clearScreen() {
         // Feed display controls locally, leaving the remote shell and command recorder untouched.
@@ -41,7 +44,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
     let directory: URL
     @Published private(set) var terminal: RecordingTerminalView
     private var recorder: InteractionRecorder
-    @Published var status = "正在连接"
+    @Published var status = L10n.tr("Connecting")
     @Published var connected = false
     @Published var ended = false
     @Published var recent: [Interaction] = []
@@ -66,12 +69,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
     private var attemptStartedAt = Date()
     private var closed = false
     private var started = false
-    var title: String { host?.name ?? "本地终端" }
+    var title: String { host?.name ?? L10n.tr("Local Terminal") }
     var displayName: HostDisplayName { host?.displayName ?? HostDisplayName(name: title, hostname: nil) }
     init(host: Host?, launch: SSHLaunch, settings: AppSettings, directory: URL) {
         self.host = host; self.launch = launch; self.directory = directory; self.settings = settings
         terminal = RecordingTerminalView(frame: NSRect(x: 0, y: 0, width: 900, height: 500))
-        recorder = InteractionRecorder(token: launch.token, hostID: host?.id, hostName: host?.name ?? "本地终端",
+        recorder = InteractionRecorder(token: launch.token, hostID: host?.id, hostName: host?.name ?? L10n.tr("Local Terminal"),
                                        sessionID: id, hostname: host?.displayName.hostname)
         super.init()
         configureTerminal()
@@ -83,10 +86,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
         terminal.onFontSizeChange = { [weak self] in self?.changeFontSize(by: $0) }
         apply(settings)
         terminal.optionAsMetaKey = true
-        terminal.setAccessibilityLabel("交互终端")
+        terminal.setAccessibilityLabel(L10n.tr("Interactive terminal"))
         recorder.onReady = { [weak self] shell in
             guard let self else { return }
-            self.shell = shell; status = "已连接"; connected = true
+            self.shell = shell; status = L10n.tr("Connected"); connected = true
             reconnecting = false; readyAt = Date()
             onLifecycle?("Shell ready: \(shell)")
             onReady?(profile)
@@ -118,7 +121,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
     private func applyFont() {
         var appearance = settings
         appearance.fontSize = fontSizeOverride ?? settings.fontSize
-        terminal.font = TerminalAppearance.font(appearance)
+        let font = TerminalAppearance.font(appearance)
+        if terminal.font != font { terminal.font = font }
     }
     func start() {
         guard !started, !closed, !ended else { return }; started = true
@@ -126,7 +130,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
         terminal.startProcess(executable: launch.executable, args: launch.arguments,
                               environment: launch.environment.map { "\($0.key)=\($0.value)" }, currentDirectory: directory.path)
         if !terminal.process.running {
-            ended = true; status = "无法创建终端进程"
+            ended = true; status = L10n.tr("Could not start terminal process")
             saveDiagnostic(reason: "launch_failed", waitStatus: nil)
             onExit?(status); launch.cleanup()
         }
@@ -136,7 +140,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
         cancelReconnect()
         recorder.finish()
         if started && !ended { terminal.terminate() }
-        ended = true; connected = false; status = "已关闭"
+        ended = true; connected = false; status = L10n.tr("Closed")
         // Give ProxyJump children a moment to leave before removing their config.
         let launch = launch
         if immediately { launch.cleanup() }
@@ -144,7 +148,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
     }
     func cancelReconnect() {
         retryTask?.cancel(); retryTask = nil
-        if reconnecting { status = "自动重连已停止" }
+        if reconnecting { status = L10n.tr("Automatic reconnection stopped") }
         reconnecting = false
     }
     func reconnect(manual: Bool = true) {
@@ -160,7 +164,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
                                            sessionID: id, hostname: host?.displayName.hostname)
             configureTerminal()
             started = false; ended = false; shell = ""; readyAt = nil; profile = nil
-            status = manual ? "正在重新连接" : "正在自动重连（第 \(retry.attempts) 次）"
+            status = manual ? L10n.tr("Reconnecting") : L10n.tr("Reconnecting automatically (attempt \(retry.attempts))")
             onLifecycle?("Reconnecting, attempt \(retry.attempts)")
             start()
         } catch {
@@ -174,9 +178,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
         terminal.window?.makeFirstResponder(terminal)
     }
     func snapshot() -> Interaction {
-        let shebang = host.map(\.shell).flatMap { $0.isEmpty ? nil : "#!\($0)" } ?? (shell.isEmpty ? "未知 shell" : shell)
+        let shebang = host.map(\.shell).flatMap { $0.isEmpty ? nil : "#!\($0)" } ?? (shell.isEmpty ? L10n.tr("Unknown shell") : shell)
         return Interaction(hostID: host?.id, hostName: title, sessionID: id, shell: shebang,
-                           command: "手动终端快照", output: InteractionRecorder.clean(String(decoding: recorder.recentOutput, as: UTF8.self)),
+                           command: L10n.tr("Manual terminal snapshot"), output: InteractionRecorder.clean(String(decoding: recorder.recentOutput, as: UTF8.self)),
                            hostname: host?.displayName.hostname)
     }
     func processTerminated(source: TerminalView, exitCode: Int32?) {
@@ -188,7 +192,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
         // A wrapper completion marker also occurs when the child shell crashes. Preserve
         // every nonzero/unknown exit; only successful completion can close its pane.
         let completed = code == 0 && (recorder.shellExitCode == nil || recorder.shellExitCode == 0)
-        status = completed ? "会话已结束" : "会话异常结束（\(code.map(String.init) ?? "未知")）"
+        status = completed ? L10n.tr("Session ended") : L10n.tr("Session ended unexpectedly (\(code.map(String.init) ?? L10n.tr("Unknown")))")
         let diagnostic = TerminalDiagnostic.tail(of: logURL)
         if !completed {
             saveDiagnostic(reason: recorder.shellExitCode == nil ? "transport_or_process_failure" : "shell_nonzero_exit",
@@ -210,7 +214,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
         if host != nil, recorder.shellExitCode == nil,
            let delay = retry.nextDelay(exitCode: code, output: output, enabled: settings.autoReconnect) {
             reconnecting = true
-            status += " · \(delay) 秒后重试（\(retry.attempts)/5）"
+            status += L10n.tr(" · Retrying in \(delay)s (\(retry.attempts)/5)")
             onLifecycle?("Retry \(retry.attempts)/5 in \(delay)s")
             retryTask = Task { [weak self] in
                 do { try await Task.sleep(for: .seconds(delay)) } catch { return }
@@ -218,7 +222,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
                 self?.reconnect(manual: false)
             }
         } else if host != nil, settings.autoReconnect, retry.exhausted {
-            status += " · 自动重连已用尽，请手动重新连接"
+            status += L10n.tr(" · Retry limit reached. Reconnect manually.")
         }
     }
     private func saveDiagnostic(reason: String, waitStatus: Int32?) {
@@ -233,9 +237,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
             interactions: recent.filter { $0.date >= attemptStartedAt }, secrets: [host?.password ?? ""])
         do {
             diagnosticURL = try diagnostic.save(in: destination)
-            status += " · 已保存异常上下文"
+            status += L10n.tr(" · Exit context saved")
         } catch {
-            status += " · 上下文保存失败：\(error.localizedDescription)"
+            status += L10n.tr(" · Could not save context: \(error.localizedDescription)")
             onLifecycle?("Terminal context write failed: \(error.localizedDescription)")
         }
     }
@@ -244,13 +248,50 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 }
 
+/// SwiftUI may size a representable to zero while mounting or removing it.
+/// Keep those transient sizes away from the emulator: reflowing to two columns
+/// can exhaust scrollback before the real pane dimensions arrive.
+final class TerminalContainerView: NSView {
+    let terminal: RecordingTerminalView
+
+    init(terminal: RecordingTerminalView) {
+        self.terminal = terminal
+        super.init(frame: terminal.frame)
+        addSubview(terminal)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layout() {
+        super.layout()
+        guard terminal.superview === self, bounds.width > 0, bounds.height > 0 else { return }
+        if terminal.frame != bounds { terminal.frame = bounds }
+    }
+
+    func detach() {
+        // SwiftUI can dismantle the old host after a split has already reparented
+        // this terminal into its new host.
+        if terminal.superview === self { terminal.removeFromSuperview() }
+    }
+}
+
 struct TerminalSurface: NSViewRepresentable {
     @ObservedObject var session: TerminalSession
-    func makeNSView(context: Context) -> RecordingTerminalView {
-        DispatchQueue.main.async { session.start(); session.terminal.window?.makeFirstResponder(session.terminal) }
-        return session.terminal
+    func makeNSView(context: Context) -> TerminalContainerView {
+        let view = TerminalContainerView(terminal: session.terminal)
+        DispatchQueue.main.async { [weak session, weak view] in
+            guard let session, let view, let window = view.window,
+                  view.terminal.superview === view, session.terminal === view.terminal else { return }
+            view.layoutSubtreeIfNeeded()
+            session.start()
+            window.makeFirstResponder(view.terminal)
+        }
+        return view
     }
-    func updateNSView(_ view: RecordingTerminalView, context: Context) {}
+    func updateNSView(_ view: TerminalContainerView, context: Context) {}
+    static func dismantleNSView(_ view: TerminalContainerView, coordinator: ()) {
+        view.detach()
+    }
 }
 
 private struct TerminalHeaderIdentity: View {
@@ -343,24 +384,24 @@ struct TerminalPane: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Menu {
                     ForEach(model.snippets) { snippet in Button(snippet.name) { session.send(snippet.command) } }
-                    if model.snippets.isEmpty { Text("请先添加快捷命令") }
+                    if model.snippets.isEmpty { Text(L10n.tr("Add a snippet first")) }
                 } label: { Image(systemName: "curlybraces") }
-                .menuStyle(.borderlessButton).fixedSize().disabled(session.ended).help("快捷命令")
-                Button { model.pin(session.recent.first ?? session.snapshot()) } label: { Image(systemName: "pin") }.help("收藏交互")
+                .menuStyle(.borderlessButton).fixedSize().disabled(session.ended).help(L10n.tr("Snippets"))
+                Button { model.pin(session.recent.first ?? session.snapshot()) } label: { Image(systemName: "pin") }.help(L10n.tr("Pin Interaction"))
                 Button { showInteractions.toggle() } label: { Image(systemName: "sidebar.right") }
                     .disabled(width < 760)
-                    .help(width < 760 ? "放宽终端窗格以显示交互记录" : "显示交互记录")
+                    .help(width < 760 ? L10n.tr("Widen the terminal pane to show interactions") : L10n.tr("Show interactions"))
                 if session.logURL != nil {
-                    Button { showLog = true } label: { Image(systemName: "doc.text") }.help("原始 SSH 日志")
+                    Button { showLog = true } label: { Image(systemName: "doc.text") }.help(L10n.tr("Raw SSH Log"))
                 }
                 if session.diagnosticURL != nil {
-                    Button { showDiagnostic = true } label: { Image(systemName: "exclamationmark.bubble") }.help("异常退出上下文")
+                    Button { showDiagnostic = true } label: { Image(systemName: "exclamationmark.bubble") }.help(L10n.tr("Exit Context"))
                 }
                 if session.reconnecting {
-                    Button("停止重试") { session.cancelReconnect() }
+                    Button(L10n.tr("Stop Retrying")) { session.cancelReconnect() }
                 }
                 if session.ended, session.host != nil {
-                    Button("重新连接") { session.reconnect() }.buttonStyle(.borderedProminent)
+                    Button(L10n.tr("Reconnect")) { session.reconnect() }.buttonStyle(.borderedProminent)
                 }
             }.padding(12).background(.bar)
             HStack(spacing: 0) {
@@ -368,12 +409,12 @@ struct TerminalPane: View {
                 if showInteractions && width >= 760 {
                     Divider()
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack { Text("本次交互").font(.headline); Spacer(); Text("\(session.recent.count)").foregroundStyle(.secondary) }
-                        Text("点击图钉保存完整交互，可在收藏中对比。").font(.caption).foregroundStyle(.secondary)
+                        HStack { Text(L10n.tr("Interactions")).font(.headline); Spacer(); Text("\(session.recent.count)").foregroundStyle(.secondary) }
+                        Text(L10n.tr("Pin an interaction to save it and compare it in Pins.")).font(.caption).foregroundStyle(.secondary)
                         if session.recent.isEmpty {
                             Spacer()
                             Image(systemName: "text.bubble").font(.largeTitle).foregroundStyle(.tertiary).frame(maxWidth: .infinity)
-                            Text(session.shell == "other" ? "当前 shell 不支持自动记录，可手动收藏快照。" : "执行命令后，记录会显示在这里。")
+                            Text(session.shell == "other" ? L10n.tr("This shell does not support automatic recording. You can pin a manual snapshot.") : L10n.tr("Recorded interactions will appear here after you run a command."))
                                 .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
                             Spacer()
                         } else {
@@ -384,14 +425,15 @@ struct TerminalPane: View {
                                             HStack {
                                                 Text(item.date, style: .time).font(.caption2).foregroundStyle(.secondary)
                                                 Spacer()
-                                                Button { model.pin(item) } label: { Image(systemName: "pin") }.buttonStyle(.plain).help("收藏这次交互")
+                                                Button { model.pin(item) } label: { Image(systemName: "pin") }.buttonStyle(.plain).help(L10n.tr("Pin This Interaction"))
                                             }
                                             Text(item.command).font(.system(size: 12, design: .monospaced)).lineLimit(3).textSelection(.enabled)
                                             HStack {
-                                                Text(item.exitCode.map { "退出 \($0)" } ?? "未完成")
+                                                let exitLabel: String = item.exitCode.map { L10n.tr("Exit \($0)") } ?? L10n.tr("Incomplete")
+                                                Text(exitLabel)
                                                     .foregroundStyle(item.exitCode == 0 ? .green : .orange)
                                                 Spacer()
-                                                Button("填入终端") { session.send(item.command) }.disabled(session.ended)
+                                                Button(L10n.tr("Insert into Terminal")) { session.send(item.command) }.disabled(session.ended)
                                             }.font(.caption2)
                                         }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 10))
                                     }
@@ -402,16 +444,16 @@ struct TerminalPane: View {
                 }
             }
             HStack {
-                Text("⌃C 中断 · ⌘K 清屏 · ⌘−/⌘= 字号 · ⌘C 复制 · ⌘V 粘贴 · Tab 补全 · ↑ 历史").lineLimit(1)
+                Text(L10n.tr("⌃C Interrupt · ⌘K Clear · ⌘−/⌘= Font size · ⌘C Copy · ⌘V Paste · Tab Complete · ↑ History")).lineLimit(1)
                 Spacer()
-                Text(session.shell.isEmpty ? "等待认证" : session.shell)
+                Text(session.shell.isEmpty ? L10n.tr("Waiting for authentication") : session.shell)
             }.font(.system(size: 10)).foregroundStyle(.secondary).padding(.horizontal, 14).padding(.vertical, 6).background(.bar)
         }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: showInteractions)
             .sheet(isPresented: $showLog) {
                 if let url = session.logURL { RawSSHLogView(url: url) }
             }
             .sheet(isPresented: $showDiagnostic) {
-                if let url = session.diagnosticURL { RawSSHLogView(url: url, title: "异常退出上下文") }
+                if let url = session.diagnosticURL { RawSSHLogView(url: url, title: L10n.tr("Exit Context")) }
             }
             .onAppear { if model.splitSession != nil { showInteractions = false } }
             .onChange(of: model.splitSession) { _, value in if value != nil { showInteractions = false } }

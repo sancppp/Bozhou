@@ -41,6 +41,7 @@ struct NativeRegressionTests {
         precondition(!running, "A closed session must not start a deferred PTY process")
         print("PASS closed terminal rejects delayed start")
 
+        try await testSessionSwitching(model)
         try await testTerminalLifecycle(model)
         testFontAndNames(model)
 
@@ -50,15 +51,147 @@ struct NativeRegressionTests {
         browser.cancel()
         // Let the cancelled connect task return from transport.start/exchange.
         try await Task.sleep(for: .milliseconds(500))
-        precondition(browser.status == "连接已关闭" && !browser.busy && !browser.connected && browser.error == nil,
+        precondition(browser.status == "Connection closed" && !browser.busy && !browser.connected && browser.error == nil,
                      "A cancelled connection must not publish its late error")
         print("PASS cancelled SFTP task cannot overwrite current state")
+        try await testLocalization(model)
+    }
+
+    @MainActor static func testLocalization(_ model: AppModel) async throws {
+        precondition(model.settings.language == .english && Page.hosts.title == "Hosts")
+        model.settings.language = .simplifiedChinese
+        model.saveSettings()
+        precondition(L10n.language == .english, "Language changes apply at the next launch")
+        let relaunched = try AppModel()
+        precondition(relaunched.settings.language == .simplifiedChinese && Page.hosts.title == "主机")
+        for language in AppLanguage.allCases {
+            L10n.configure(language)
+            precondition(HostSort.folders.title == (language == .english ? "Folder name" : "文件夹名称"))
+            precondition(FileBrowserModel().status == (language == .english ? "Not connected yet" : "尚未连接"))
+            for page in Page.allCases {
+                model.page = page
+                let content = NSHostingView(rootView: RootView().environmentObject(model).environment(\.locale, language.locale))
+                content.frame = NSRect(x: 0, y: 0, width: 1100, height: 720)
+                content.layoutSubtreeIfNeeded()
+                precondition(content.fittingSize.width <= 1100, "\(language) / \(page) exceeded the window width")
+            }
+            let browser = FileBrowserModel()
+            browser.connect(model: model, host: Host(name: "fixture", address: "127.0.0.1", port: 1))
+            browser.cancel()
+            try await Task.sleep(for: .milliseconds(100))
+            precondition(browser.error == nil && !browser.connected && !browser.busy)
+        }
+        model.settings.language = .english; model.saveSettings(); L10n.configure(.english)
+        print("PASS English default, persisted Chinese on relaunch, bilingual pages and language-independent SFTP cancellation")
     }
 
     @MainActor static func wait(until condition: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(10)
         while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(30)) }
         precondition(condition(), "Timed out waiting for the isolated terminal")
+    }
+
+    @MainActor static func testSessionSwitching(_ model: AppModel) async throws {
+        let content = NSHostingView(rootView: RootView().environmentObject(model))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.contentView = content
+        defer { model.closeAll(); window.contentView = nil }
+        func settle() async throws {
+            try await Task.sleep(for: .milliseconds(150))
+            content.layoutSubtreeIfNeeded()
+        }
+        var sessions: [TerminalSession] = []
+        for index in 0..<2 {
+            let directory = model.paths.sessions.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let launch = SSHLaunch(executable: "/bin/cat", arguments: [], environment: ["TERM": "xterm-256color"],
+                                   directory: directory, token: "switch-\(index)")
+            let session = TerminalSession(host: nil, launch: launch, settings: AppSettings(), directory: directory)
+            model.addSession(session)
+            try await settle()
+            precondition(session.terminal.process.running)
+            // Enough scrollback to expose accidental reflow through a zero-width layout.
+            session.terminal.feed(text: (0..<150).map {
+                "session-\(index)-line-\($0)-abcdefghijklmnopqrstuvwxyz-0123456789\r\n"
+            }.joined())
+            session.terminal.scroll(toPosition: 0)
+            sessions.append(session)
+        }
+        var terminals = sessions.map(\.terminal)
+        let pids = terminals.map { $0.process.shellPid }
+        func check(_ step: String) {
+            for (index, session) in sessions.enumerated() {
+                let terminal = session.terminal
+                let text = String(decoding: terminal.getTerminal().getBufferAsData(), as: UTF8.self)
+                precondition(terminal === terminals[index] && terminal.process.shellPid == pids[index] && terminal.process.running,
+                             "\(step): switching must retain the terminal and live PTY")
+                precondition(text.contains("session-\(index)-line-0-") && text.contains("session-\(index)-line-149-"),
+                             "\(step): switching lost scrollback; dims=\(terminal.getTerminal().getDims()), bytes=\(text.utf8.count), head=\(text.prefix(120))")
+            }
+        }
+        for _ in 0..<3 {
+            model.activeSession = nil
+            try await settle()
+            check("workspace")
+            for session in sessions {
+                let scrollRow = session.terminal.getTerminal().buffer.yDisp
+                let size = session.terminal.frame.size
+                model.activeSession = session.id
+                try await settle()
+                precondition(session.terminal.window === window)
+                if session.terminal.frame.size == size {
+                    precondition(session.terminal.getTerminal().buffer.yDisp == scrollRow,
+                                 "Switching tabs at the same size must retain the scrolled viewport")
+                }
+                check("tab")
+            }
+            model.activeSession = sessions[0].id
+            for vertical in [false, true] {
+                model.splitSession = sessions[1].id; model.splitVertical = vertical
+                try await settle()
+                check("split")
+            }
+            model.splitSession = nil
+            try await settle()
+            check("unsplit")
+        }
+        model.activeSession = nil
+        try await settle()
+        // Real PTY output must continue to arrive while its SwiftUI pane is absent.
+        let command = "background-pty-output"
+        sessions[0].send(command, execute: true)
+        try await wait {
+            String(decoding: sessions[0].terminal.getTerminal().getBufferAsData(), as: UTF8.self).contains(command)
+        }
+        model.activeSession = sessions[0].id
+        try await settle()
+        check("background output")
+        print("PASS tab/workspace/split switching retains scrollback, terminal identity, PID and background PTY output")
+
+        terminals[0].feed(text: "\u{1b}[?1049h\u{1b}[?1hALTERNATE-SCREEN")
+        let cursor = (terminals[0].getTerminal().buffer.x, terminals[0].getTerminal().buffer.y)
+        sessions[0].apply(AppSettings())
+        model.activeSession = nil
+        try await settle()
+        model.activeSession = sessions[0].id
+        try await settle()
+        precondition(terminals[0].getTerminal().isCurrentBufferAlternate && terminals[0].getTerminal().applicationCursor)
+        precondition((terminals[0].getTerminal().buffer.x, terminals[0].getTerminal().buffer.y) == cursor)
+        precondition(String(decoding: terminals[0].getTerminal().getBufferAsData(), as: UTF8.self).contains("ALTERNATE-SCREEN"))
+        terminals[0].feed(text: "\u{1b}[?1049l")
+        check("alternate screen")
+        print("PASS alternate screen, cursor and application mode survive remounting and unchanged settings")
+
+        weak var releasedSession: TerminalSession?
+        weak var releasedTerminal: RecordingTerminalView?
+        weak var releasedProcess: AnyObject?
+        releasedSession = sessions[0]; releasedTerminal = terminals[0]; releasedProcess = terminals[0].process
+        model.closeAll()
+        sessions.removeAll(); terminals.removeAll()
+        try await settle()
+        try await wait { releasedSession == nil && releasedTerminal == nil && releasedProcess == nil }
+        print("PASS closing mounted sessions releases session, terminal and PTY objects")
     }
 
     @MainActor static func testTerminalLifecycle(_ model: AppModel) async throws {
@@ -171,17 +304,17 @@ struct NativeRegressionTests {
         retry.start()
         for delay in [5, 10, 30, 60, 120] {
             try await wait { retry.ended }
-            precondition(retry.reconnecting && retry.status.contains("\(delay) 秒后重试"))
+            precondition(retry.reconnecting && retry.status.contains("Retrying in \(delay)s"))
             let old = retry.terminal
             retry.reconnect(manual: false)
             retry.processTerminated(source: old, exitCode: 0)
             precondition(model.sessions.contains { $0.id == retry.id }, "Stale process completion must not close the new session")
         }
         try await wait { retry.ended }
-        precondition(!retry.reconnecting && retry.status.contains("请手动重新连接"))
+        precondition(!retry.reconnecting && retry.status.contains("Reconnect manually"))
         retry.reconnect()
         try await wait { retry.ended }
-        precondition(retry.reconnecting && retry.status.contains("5 秒后重试"))
+        precondition(retry.reconnecting && retry.status.contains("Retrying in 5s"))
         retry.cancelReconnect()
         precondition(!retry.reconnecting)
         model.closeAll()

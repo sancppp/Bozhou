@@ -16,7 +16,7 @@ final class FileBrowserModel: ObservableObject {
     @Published var remoteEntries: [RemoteFile] = []
     @Published var connected = false
     @Published var busy = false
-    @Published var status = "尚未连接"
+    @Published var status = L10n.tr("Not connected yet")
     @Published var error: String?
     @Published var progress: Double = 0
     private var client: SFTPClient?
@@ -33,18 +33,18 @@ final class FileBrowserModel: ObservableObject {
         do {
             let launch = try model.builder.build(host: host, hosts: model.hosts, identities: model.identities, sftp: true)
             let client = SFTPClient(launch: launch); self.client = client
-            busy = true; status = "正在连接 \(host.displayName.full)…"; error = nil
+            busy = true; status = L10n.tr("Connecting to \(host.displayName.full)…"); error = nil
             task = Task {
                 do {
                     let directory = try await client.connect()
                     let entries = try await client.list(directory)
                     guard self.generation == generation else { return }
                     remoteDirectory = directory; remoteEntries = entries
-                    connected = true; status = "已连接 · \(host.displayName.full)"
-                    log?.write("SFTP 已连接：\(host.name)")
+                    connected = true; status = L10n.tr("Connected · \(host.displayName.full)")
+                    log?.write(L10n.tr("SFTP connected: \(host.name)"))
                 } catch {
                     guard self.generation == generation else { return }
-                    self.error = error.localizedDescription; status = "连接失败"; connected = false; client.cancel()
+                    self.error = error.localizedDescription; status = L10n.tr("Connection failed"); connected = false; client.cancel()
                 }
                 busy = false
             }
@@ -74,7 +74,7 @@ final class FileBrowserModel: ObservableObject {
     func path(_ name: String) -> String { (remoteDirectory == "/" ? "" : remoteDirectory) + "/" + name }
     func navigate(_ path: String) {
         let generation = self.generation
-        operate("正在读取目录…") { client in
+        operate(L10n.tr("Reading directory…")) { client in
             let entries = try await client.list(path)
             guard self.generation == generation else { return }
             self.remoteDirectory = path; self.remoteEntries = entries
@@ -83,7 +83,7 @@ final class FileBrowserModel: ObservableObject {
     func upload(_ url: URL) {
         let target = path(url.lastPathComponent)
         let generation = self.generation, directory = remoteDirectory
-        operate("正在上传 \(url.lastPathComponent)…") { client in
+        operate(L10n.tr("Uploading \(url.lastPathComponent)…"), uploading: true) { client in
             try await client.upload(local: url, remote: target) { done, total in
                 Task { @MainActor in
                     guard self.generation == generation else { return }
@@ -98,9 +98,9 @@ final class FileBrowserModel: ObservableObject {
         let remote = path(file.name), local = localDirectory.appendingPathComponent(file.name)
         let generation = self.generation
         guard file.name != "." && file.name != ".." && !file.name.contains("/") && !file.name.contains("\0") else {
-            error = "服务器返回了无效的文件名"; return
+            error = L10n.tr("Server returned an invalid filename"); return
         }
-        operate("正在下载 \(file.name)…") { client in
+        operate(L10n.tr("Downloading \(file.name)…")) { client in
             try await client.download(remote: remote, local: local, total: file.size) { done, total in
                 Task { @MainActor in
                     guard self.generation == generation else { return }
@@ -113,26 +113,26 @@ final class FileBrowserModel: ObservableObject {
     func mkdir(_ name: String) {
         guard validName(name) else { return }
         let target = path(name)
-        operateAndRefresh("正在创建目录…") { client in try await client.mkdir(target) }
+        operateAndRefresh(L10n.tr("Creating directory…")) { client in try await client.mkdir(target) }
     }
     func rename(_ file: RemoteFile, name: String) {
         guard validName(name) else { return }
         let from = path(file.name), to = path(name)
-        operateAndRefresh("正在重命名…") { client in try await client.rename(from, to: to) }
+        operateAndRefresh(L10n.tr("Renaming…")) { client in try await client.rename(from, to: to) }
     }
     func remove(_ file: RemoteFile) {
         let target = path(file.name)
-        operateAndRefresh("正在删除…") { client in try await client.remove(target, directory: file.isDirectory) }
+        operateAndRefresh(L10n.tr("Deleting…")) { client in try await client.remove(target, directory: file.isDirectory) }
     }
     func cancel() {
         generation = UUID()
         task?.cancel(); task = nil; client?.cancel(); client = nil
         connected = false; busy = false; remoteEntries = []
-        status = "连接已关闭"
+        status = L10n.tr("Connection closed")
     }
     private func validName(_ name: String) -> Bool {
         guard !name.isEmpty, !name.contains("/"), !name.contains("\0"), name != ".", name != ".." else {
-            error = "名称不能为空，不能包含 /，也不能为 . 或 .."; return false
+            error = L10n.tr("Name cannot be empty, contain /, or be . or .."); return false
         }
         return true
     }
@@ -144,7 +144,7 @@ final class FileBrowserModel: ObservableObject {
             if self.generation == generation { self.remoteEntries = entries }
         }
     }
-    private func operate(_ title: String, action: @escaping (SFTPClient) async throws -> Void) {
+    private func operate(_ title: String, uploading: Bool = false, action: @escaping (SFTPClient) async throws -> Void) {
         guard !busy, connected, let client else { return }
         let generation = self.generation
         busy = true; status = title; progress = 0; error = nil
@@ -152,14 +152,14 @@ final class FileBrowserModel: ObservableObject {
             do {
                 try await action(client)
                 guard self.generation == generation else { return }
-                status = "操作完成"; progress = 1
+                status = L10n.tr("Operation complete"); progress = 1
             }
             catch {
                 guard self.generation == generation else { return }
-                self.error = error.localizedDescription + (title.contains("上传") ? "\n中断的上传可能留下同名部分文件，请检查后再重试。" : "")
-                status = "操作未完成"
-                if error.localizedDescription.contains("连接") || error.localizedDescription.contains("超时") || error is CancellationError { connected = false }
-                log?.write("SFTP 操作失败：\(error.localizedDescription)")
+                self.error = error.localizedDescription + (uploading ? L10n.tr("\nAn interrupted upload may leave a partial file with the same name. Check it before retrying.") : "")
+                status = L10n.tr("Operation incomplete")
+                if client.isClosed || error is CancellationError { connected = false }
+                log?.write(L10n.tr("SFTP operation failed: \(error.localizedDescription)"))
             }
             busy = false
         }
@@ -190,9 +190,9 @@ struct SFTPView: View {
                     Text("\(host.username)@\(host.address)").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("服务器间传输") { serverTransfer = true }
-                if !browser.connected && !browser.busy { Button("重新连接") { browser.connect(model: model, host: host) } }
-                Button("完成") { browser.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L10n.tr("Server-to-Server Transfer")) { serverTransfer = true }
+                if !browser.connected && !browser.busy { Button(L10n.tr("Reconnect")) { browser.connect(model: model, host: host) } }
+                Button(L10n.tr("Done")) { browser.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
             }.padding(20)
             Divider()
             HStack(spacing: 0) {
@@ -204,35 +204,35 @@ struct SFTPView: View {
             HStack(spacing: 12) {
                 if browser.busy {
                     ProgressView(value: browser.progress).frame(width: 120)
-                    Button("取消") { browser.cancel() }.controlSize(.small)
+                    Button(L10n.tr("Cancel")) { browser.cancel() }.controlSize(.small)
                 } else { Image(systemName: browser.connected ? "checkmark.circle" : "circle").foregroundStyle(browser.connected ? .green : .secondary) }
                 Text(browser.status).font(.caption)
                 Spacer()
-                Text("同名文件不会覆盖 · 目录删除仅支持空目录").font(.caption2).foregroundStyle(.secondary)
+                Text(L10n.tr("Existing files are never overwritten · Only empty directories can be deleted")).font(.caption2).foregroundStyle(.secondary)
             }.padding(16).background(.bar)
         }.frame(width: 1000, height: 660).tint(sea)
             .sheet(isPresented: $serverTransfer) { ServerTransferView(host: host).environmentObject(model) }
             .onAppear { browser.connect(model: model, host: host) }
             .onDisappear { browser.cancel() }
             .onChange(of: browser.remoteDirectory) { _, value in remoteInput = value; remoteSelection = nil }
-            .alert("SFTP 操作未完成", isPresented: Binding(get: { browser.error != nil }, set: { if !$0 { browser.error = nil } })) {
-                Button("知道了", role: .cancel) {}
+            .alert(L10n.tr("SFTP operation incomplete"), isPresented: Binding(get: { browser.error != nil }, set: { if !$0 { browser.error = nil } })) {
+                Button(L10n.tr("OK"), role: .cancel) {}
             } message: { Text(browser.error ?? "") }
-            .alert(renameTarget == nil ? "新建远程目录" : "重命名", isPresented: $showName) {
-                TextField("名称", text: $name)
-                Button("取消", role: .cancel) {}
-                Button("确定") {
+            .alert(renameTarget == nil ? L10n.tr("New Remote Directory") : L10n.tr("Rename"), isPresented: $showName) {
+                TextField(L10n.tr("Name"), text: $name)
+                Button(L10n.tr("Cancel"), role: .cancel) {}
+                Button(L10n.tr("Confirm")) {
                     if let target = renameTarget { browser.rename(target, name: name) } else { browser.mkdir(name) }
                 }
             }
-            .alert("删除远程文件？", isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } })) {
-                Button("取消", role: .cancel) {}
-                Button("删除", role: .destructive) { if let target = deleteTarget { browser.remove(target) }; deleteTarget = nil }
-            } message: { Text("将从服务器永久删除「\(deleteTarget?.name ?? "")」。") }
+            .alert(L10n.tr("Delete Remote File?"), isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } })) {
+                Button(L10n.tr("Cancel"), role: .cancel) {}
+                Button(L10n.tr("Delete"), role: .destructive) { if let target = deleteTarget { browser.remove(target) }; deleteTarget = nil }
+            } message: { Text(L10n.tr("“\(deleteTarget?.name ?? "")” will be permanently deleted from the server.")) }
     }
     private var localPane: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { Label("本地文件", systemImage: "laptopcomputer").font(.headline); Spacer(); Button("选择目录") { chooseDirectory() } }
+            HStack { Label(L10n.tr("Local Files"), systemImage: "laptopcomputer").font(.headline); Spacer(); Button(L10n.tr("Choose Directory")) { chooseDirectory() } }
             HStack {
                 Button { browser.localDirectory.deleteLastPathComponent(); browser.refreshLocal() } label: { Image(systemName: "arrow.up") }
                 Text(browser.localDirectory.path).font(.system(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle).help(browser.localDirectory.path)
@@ -246,9 +246,9 @@ struct SFTPView: View {
                     }
             }.listStyle(.inset).scrollContentBackground(.hidden)
             HStack {
-                Text("\(browser.localEntries.count) 个项目").font(.caption).foregroundStyle(.secondary)
+                Text(L10n.tr("Items: \(browser.localEntries.count)")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button { if let file = selectedLocal { browser.upload(file.url) } } label: { Label("上传", systemImage: "arrow.right") }
+                Button { if let file = selectedLocal { browser.upload(file.url) } } label: { Label(L10n.tr("Upload"), systemImage: "arrow.right") }
                     .disabled(browser.busy || !browser.connected || selectedLocal == nil || selectedLocal?.directory == true)
             }
         }.padding(18).frame(maxWidth: .infinity)
@@ -256,16 +256,16 @@ struct SFTPView: View {
     private var remotePane: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("远程文件", systemImage: "server.rack").font(.headline)
+                Label(L10n.tr("Remote Files"), systemImage: "server.rack").font(.headline)
                 Spacer()
-                Button { name = ""; renameTarget = nil; showName = true } label: { Label("新建目录", systemImage: "folder.badge.plus") }.disabled(browser.busy || !browser.connected)
+                Button { name = ""; renameTarget = nil; showName = true } label: { Label(L10n.tr("New Directory"), systemImage: "folder.badge.plus") }.disabled(browser.busy || !browser.connected)
             }
             HStack {
                 Button {
                     let parent = (browser.remoteDirectory as NSString).deletingLastPathComponent
                     browser.navigate(parent.isEmpty ? "/" : parent)
                 } label: { Image(systemName: "arrow.up") }
-                TextField("远程路径", text: $remoteInput).font(.system(size: 11, design: .monospaced))
+                TextField(L10n.tr("Remote path"), text: $remoteInput).font(.system(size: 11, design: .monospaced))
                     .onSubmit { browser.navigate(remoteInput) }
                 Button { browser.navigate(remoteInput) } label: { Image(systemName: "arrow.clockwise") }
             }.disabled(browser.busy || !browser.connected)
@@ -274,16 +274,16 @@ struct SFTPView: View {
                     .tag(file.name).contentShape(Rectangle()).onTapGesture(count: 2) {
                         if file.isDirectory { browser.navigate(browser.path(file.name)) }
                     }.contextMenu {
-                        Button("下载") { browser.download(file) }.disabled(file.isDirectory || browser.busy || !browser.connected)
-                        Button("重命名") { renameTarget = file; name = file.name; showName = true }.disabled(browser.busy || !browser.connected)
-                        Button("删除", role: .destructive) { deleteTarget = file }.disabled(browser.busy || !browser.connected)
+                        Button(L10n.tr("Download")) { browser.download(file) }.disabled(file.isDirectory || browser.busy || !browser.connected)
+                        Button(L10n.tr("Rename")) { renameTarget = file; name = file.name; showName = true }.disabled(browser.busy || !browser.connected)
+                        Button(L10n.tr("Delete"), role: .destructive) { deleteTarget = file }.disabled(browser.busy || !browser.connected)
                     }
             }.listStyle(.inset).scrollContentBackground(.hidden)
             HStack {
-                Button { if let file = selectedRemote { browser.download(file) } } label: { Label("下载", systemImage: "arrow.left") }
+                Button { if let file = selectedRemote { browser.download(file) } } label: { Label(L10n.tr("Download"), systemImage: "arrow.left") }
                     .disabled(browser.busy || !browser.connected || selectedRemote == nil || selectedRemote?.isDirectory == true)
                 Spacer()
-                Text("\(browser.remoteEntries.count) 个项目").font(.caption).foregroundStyle(.secondary)
+                Text(L10n.tr("Items: \(browser.remoteEntries.count)")).font(.caption).foregroundStyle(.secondary)
             }
         }.padding(18).frame(maxWidth: .infinity)
     }
@@ -295,7 +295,7 @@ struct SFTPView: View {
         }.padding(.vertical, 5)
     }
     private func chooseDirectory() {
-        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.prompt = "选择"
+        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.prompt = L10n.tr("Choose")
         if panel.runModal() == .OK, let url = panel.url { browser.localDirectory = url; browser.refreshLocal() }
     }
 }

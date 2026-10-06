@@ -1,15 +1,23 @@
 import Foundation
 
 public enum HostSort: String, CaseIterable, Identifiable {
-    case folders = "文件夹名称", name = "服务器名称", created = "添加时间", login = "上次登录"
+    case folders, name, created, login
     public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .folders: return L10n.tr("Folder name")
+        case .name: return L10n.tr("Server name")
+        case .created: return L10n.tr("Date added")
+        case .login: return L10n.tr("Last login")
+        }
+    }
 }
 
 public enum HostTree {
     public static func normalize(_ path: String) throws -> String {
         let parts = path.split(separator: "/").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard parts.count <= 32, parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\0") && !$0.contains("\n") }) else {
-            throw BozhouError.invalid("文件夹路径最多 32 层，名称不能为 .、.. 或包含换行")
+            throw BozhouError.invalid(L10n.tr("Folder paths support up to 32 levels. Names cannot be . or .., or contain newlines."))
         }
         return parts.joined(separator: "/")
     }

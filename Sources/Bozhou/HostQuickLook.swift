@@ -56,27 +56,27 @@ struct HostQuickLook: View {
             VStack(alignment: .leading, spacing: 16) {
                 Label(host.name, systemImage: "server.rack").font(.title2.weight(.semibold))
                 Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 10) {
-                    field("主机名", host.systemProfile?.hostname ?? "尚未采集")
-                    field("地址", "\(host.address):\(host.port)")
-                    field("用户名", host.username)
-                    field("文件夹", host.folderPath)
-                    field("认证方式", host.authentication.title)
-                    field("上次登录", host.lastLoginAt?.formatted() ?? "尚未登录")
-                    if !host.tags.isEmpty { field("标签", host.tags) }
+                    field(L10n.tr("Hostname"), host.systemProfile?.hostname ?? L10n.tr("Not yet collected"))
+                    field(L10n.tr("Address"), "\(host.address):\(host.port)")
+                    field(L10n.tr("Username"), host.username)
+                    field(L10n.tr("Folder"), host.folderPath)
+                    field(L10n.tr("Authentication method"), host.authentication.title)
+                    field(L10n.tr("Last login"), host.lastLoginAt.map { L10n.date($0) } ?? L10n.tr("Never logged in"))
+                    if !host.tags.isEmpty { field(L10n.tr("Tags"), host.tags) }
                     if !host.jumpHosts.isEmpty {
-                        field("跳板链", host.jumpHosts.map { id in
-                            hosts.first { $0.id == id }?.displayName.full ?? "已删除的主机"
+                        field(L10n.tr("Jump host chain"), host.jumpHosts.map { id in
+                            hosts.first { $0.id == id }?.displayName.full ?? L10n.tr("Deleted host")
                         }.joined(separator: " → "))
                     }
                     if let profile = host.systemProfile {
-                        field("操作系统", profile.operatingSystem)
-                        field("内核与架构", profile.kernel)
+                        field(L10n.tr("Operating system"), profile.operatingSystem)
+                        field(L10n.tr("Kernel & architecture"), profile.kernel)
                         field("CPU", profile.cpu)
-                        field("内存", profile.memory)
+                        field(L10n.tr("Memory"), profile.memory)
                     }
-                    if !host.notes.isEmpty { field("备注", host.notes) }
+                    if !host.notes.isEmpty { field(L10n.tr("Notes"), host.notes) }
                 }.textSelection(.enabled)
-                Text("空格 / Esc 关闭 · ↑↓ 切换主机").font(.caption).foregroundStyle(.secondary)
+                Text(L10n.tr("Space / Esc Close · ↑↓ Switch host")).font(.caption).foregroundStyle(.secondary)
             }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
         }
     }

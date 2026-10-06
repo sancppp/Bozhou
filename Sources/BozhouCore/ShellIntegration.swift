@@ -137,17 +137,23 @@ public final class InteractionRecorder {
     private let hostName: String
     private var hostname: String?
     private let sessionID: UUID
+    private var outputTail: OutputTail
     public private(set) var shellExitCode: Int?
-    public private(set) var recentOutput: [UInt8] = []
+    public var recentOutput: [UInt8] { outputTail.bytes }
     public init(token: String, hostID: UUID?, hostName: String, sessionID: UUID, maximumOutput: Int = 256 * 1024,
                 hostname: String? = nil) {
         prefix = Array("\u{1b}]777;bozhou;\(token);".utf8)
-        self.hostID = hostID; self.hostName = hostName; self.sessionID = sessionID; self.maximumOutput = maximumOutput
+        self.hostID = hostID; self.hostName = hostName; self.sessionID = sessionID; self.maximumOutput = max(0, maximumOutput)
+        outputTail = OutputTail(limit: self.maximumOutput)
         self.hostname = hostname
     }
 
     /// Returns terminal display bytes with our private markers removed.
     public func feed(_ data: [UInt8]) -> [UInt8] {
+        feed(data[...])
+    }
+
+    public func feed(_ data: ArraySlice<UInt8>) -> [UInt8] {
         pending += data
         var visible: [UInt8] = [], cursor = 0, plain = 0
         while cursor < pending.count {
@@ -159,7 +165,7 @@ public final class InteractionRecorder {
                         if pending.count - cursor > 65536 { cursor += 1; continue }
                         break
                     }
-                    let before = Array(pending[plain..<cursor])
+                    let before = pending[plain..<cursor]
                     appendOutput(before); visible += before
                     let fields = String(decoding: pending[(cursor + prefix.count)..<end], as: UTF8.self).components(separatedBy: ";")
                     marker(fields)
@@ -168,18 +174,16 @@ public final class InteractionRecorder {
             }
             cursor += 1
         }
-        let before = Array(pending[plain..<cursor])
+        let before = pending[plain..<cursor]
         appendOutput(before); visible += before
         pending.removeFirst(cursor)
-        recentOutput += visible
-        if recentOutput.count > maximumOutput { recentOutput.removeFirst(recentOutput.count - maximumOutput) }
+        outputTail.append(visible[...])
         return visible
     }
 
     public func finish(exitCode: Int? = nil) {
-        recentOutput += pending
-        if recentOutput.count > maximumOutput { recentOutput.removeFirst(recentOutput.count - maximumOutput) }
-        appendOutput(pending); pending.removeAll()
+        outputTail.append(pending[...])
+        appendOutput(pending[...]); pending.removeAll()
         if var current = active {
             current.output = Self.clean(String(decoding: output, as: UTF8.self))
             current.exitCode = exitCode
@@ -188,7 +192,7 @@ public final class InteractionRecorder {
         active = nil; output.removeAll()
     }
 
-    private func appendOutput(_ bytes: [UInt8]) {
+    private func appendOutput(_ bytes: ArraySlice<UInt8>) {
         guard active != nil else { return }
         let remaining = max(0, maximumOutput - output.count)
         output += bytes.prefix(remaining)
@@ -225,5 +229,43 @@ public final class InteractionRecorder {
         string.replacingOccurrences(of: #"\x1B\[[0-?]*[ -/]*[@-~]"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"\x1B\][^\x07]*(?:\x07|\x1B\\)"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "")
+    }
+}
+
+/// Lazily filled circular storage. Small PTY reads overwrite only the oldest
+/// bytes instead of shifting the entire (up to 256 KiB) tail on every read.
+private struct OutputTail {
+    let limit: Int
+    private var storage: [UInt8] = []
+    private var start = 0
+
+    init(limit: Int) { self.limit = limit }
+
+    var bytes: [UInt8] {
+        guard start > 0 else { return storage }
+        var result: [UInt8] = []
+        result.reserveCapacity(storage.count)
+        result += storage[start...]
+        result += storage[..<start]
+        return result
+    }
+
+    mutating func append(_ bytes: ArraySlice<UInt8>) {
+        guard limit > 0, !bytes.isEmpty else { return }
+        if bytes.count >= limit {
+            storage = Array(bytes.suffix(limit))
+            start = 0
+            return
+        }
+        let growth = min(limit - storage.count, bytes.count)
+        storage += bytes.prefix(growth)
+        let remainder = bytes.dropFirst(growth)
+        guard !remainder.isEmpty else { return }
+        let first = min(remainder.count, limit - start)
+        storage.replaceSubrange(start..<(start + first), with: remainder.prefix(first))
+        if first < remainder.count {
+            storage.replaceSubrange(0..<(remainder.count - first), with: remainder.dropFirst(first))
+        }
+        start = (start + remainder.count) % limit
     }
 }

@@ -24,5 +24,5 @@ public extension Host {
     var displayName: HostDisplayName {
         HostDisplayName(name: name, hostname: systemProfile?.hostname?.isEmpty == false ? systemProfile?.hostname : address)
     }
-    var folderPath: String { group.isEmpty ? "所有主机" : "所有主机/" + group }
+    var folderPath: String { group.isEmpty ? L10n.tr("All Hosts") : L10n.tr("All Hosts/") + group }
 }

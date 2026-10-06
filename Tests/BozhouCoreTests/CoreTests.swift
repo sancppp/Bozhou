@@ -152,6 +152,34 @@ final class CoreTests {
         recorder.finish()
         XCTAssertEqual(recorder.recentOutput, finished)
     }
+
+    func testRecorderTailAcrossWrapsAndChunks() throws {
+        for limit in [0, 1, 8, 257, 256 * 1024] {
+            let recorder = InteractionRecorder(token: "tail", hostID: nil, hostName: "fixture",
+                                               sessionID: UUID(), maximumOutput: limit)
+            var expected: [UInt8] = []
+            var sequence = 0
+            // Cross the limit, wrap repeatedly, then replace the whole tail.
+            for count in [limit + 3, 1, 7, 19, 3, limit / 2, limit - 1, limit, 2, 0].map({ max(0, $0) }) {
+                let bytes = (0..<count).map { UInt8(32 + (sequence + $0) % 90) }
+                sequence += count
+                let padded = [UInt8(0)] + bytes + [UInt8(0)]
+                let previous = recorder.recentOutput
+                let visible = recorder.feed(padded[1..<(count + 1)])
+                XCTAssertEqual(visible, bytes)
+                XCTAssertEqual(previous, expected)
+                expected = Array((expected + bytes).suffix(limit))
+                XCTAssertEqual(recorder.recentOutput, expected)
+            }
+            let partial = Array("\u{1b}]777;bozhou;tail;".utf8)
+            XCTAssertTrue(recorder.feed(partial).isEmpty)
+            recorder.finish()
+            expected = Array((expected + partial).suffix(limit))
+            XCTAssertEqual(recorder.recentOutput, expected)
+            recorder.finish()
+            XCTAssertEqual(recorder.recentOutput, expected)
+        }
+    }
     func testTerminalDiagnosticPersistence() throws {
         let secret = "fake-private-password"
         let oversized = secret + String(repeating: "中文", count: 30_000) + secret
@@ -290,7 +318,7 @@ final class CoreTests {
         XCTAssertEqual(HostDisplayName(name: "本地终端", hostname: " \n").full, "本地终端")
         let host = Host(name: "未登录", address: "host.example", group: "生产/华北")
         XCTAssertEqual(host.displayName.full, "未登录(host.example)")
-        XCTAssertEqual(host.folderPath, "所有主机/生产/华北")
+        XCTAssertEqual(host.folderPath, "All Hosts/生产/华北")
         let item = Interaction(hostID: host.id, hostName: host.name, sessionID: UUID(), shell: "bash", command: "pwd")
         let old = try JSONEncoder().encode(item)
         XCTAssertNil(try JSONDecoder().decode(Interaction.self, from: old).hostname)

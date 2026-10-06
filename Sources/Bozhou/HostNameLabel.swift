@@ -26,7 +26,7 @@ struct HostPicker: View {
     var body: some View {
         LabeledContent(title) {
             Menu {
-                Button("选择已保存的主机") { selection = nil }
+                Button(L10n.tr("Select a saved host")) { selection = nil }
                 ForEach(hosts) { host in
                     Button(host.displayName.full) { selection = host.id }
                 }
@@ -37,12 +37,12 @@ struct HostPicker: View {
                     HStack(spacing: 6) {
                         if let host = hosts.first(where: { $0.id == selection }) {
                             HostNameLabel(host.displayName)
-                        } else { Text("选择已保存的主机") }
+                        } else { Text(L10n.tr("Select a saved host")) }
                         Image(systemName: "chevron.down").font(.system(size: 10))
                     }.allowsHitTesting(false)
                 }
                 .accessibilityLabel(title)
-                .accessibilityValue(hosts.first(where: { $0.id == selection })?.displayName.full ?? "选择已保存的主机")
+                .accessibilityValue(hosts.first(where: { $0.id == selection })?.displayName.full ?? L10n.tr("Select a saved host"))
         }
     }
 }

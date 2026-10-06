@@ -25,7 +25,7 @@ private final class RelayModel: ObservableObject {
     @Published var transferring = false
     @Published var progress = 0.0
     @Published var transferred: UInt64 = 0
-    @Published var status = "选择两台服务器后连接"
+    @Published var status = L10n.tr("Select two servers, then connect")
     @Published var error: String?
     private var left: SFTPClient?
     private var right: SFTPClient?
@@ -42,7 +42,7 @@ private final class RelayModel: ObservableObject {
             self.left = left
             let right = SFTPClient(launch: try model.builder.build(host: b, hosts: model.hosts, identities: model.identities, sftp: true))
             self.right = right
-            busy = true; status = "正在连接两台服务器…"; error = nil
+            busy = true; status = L10n.tr("Connecting to both servers…"); error = nil
             task = Task {
                 do {
                     let aPath = try await left.connect()
@@ -51,7 +51,7 @@ private final class RelayModel: ObservableObject {
                     let bFiles = try await right.list(bPath)
                     guard self.generation == generation else { return }
                     leftPath = aPath; rightPath = bPath; leftFiles = aFiles; rightFiles = bFiles
-                    connected = true; status = "两台服务器均已连接"
+                    connected = true; status = L10n.tr("Both servers connected")
                 } catch {
                     guard self.generation == generation else { return }
                     self.error = error.localizedDescription; cancel()
@@ -62,7 +62,7 @@ private final class RelayModel: ObservableObject {
     }
     func navigate(leftSide: Bool, path: String) {
         guard connected, !busy, let client = leftSide ? left : right else { return }
-        busy = true; status = "正在读取目录…"
+        busy = true; status = L10n.tr("Reading directory…")
         let generation = self.generation
         task = Task {
             do {
@@ -70,7 +70,7 @@ private final class RelayModel: ObservableObject {
                 guard self.generation == generation else { return }
                 if leftSide { leftFiles = files; leftPath = path; leftSelection = nil }
                 else { rightFiles = files; rightPath = path; rightSelection = nil }
-                status = "目录已更新"
+                status = L10n.tr("Directory refreshed")
             } catch { if self.generation == generation { self.error = error.localizedDescription } }
             if self.generation == generation { busy = false }
         }
@@ -78,7 +78,7 @@ private final class RelayModel: ObservableObject {
     func transfer(_ request: TransferRequest, destination: String) {
         guard !busy, connected, let left, let right else { return }
         guard destination.hasPrefix("/"), !destination.contains("\0"), !destination.hasSuffix("/") else {
-            error = "目标必须是包含文件名的绝对路径"; return
+            error = L10n.tr("Destination must be an absolute path including the filename"); return
         }
         let source = request.fromLeft ? left : right
         let target = request.fromLeft ? right : left
@@ -97,10 +97,10 @@ private final class RelayModel: ObservableObject {
                 let aFiles = try await left.list(leftPath)
                 let bFiles = try await right.list(rightPath)
                 guard self.generation == generation else { return }
-                progress = 1; status = "传输完成：\(destination)"; leftFiles = aFiles; rightFiles = bFiles
+                progress = 1; status = L10n.tr("Transfer complete: \(destination)"); leftFiles = aFiles; rightFiles = bFiles
             } catch {
                 guard self.generation == generation else { return }
-                self.error = error.localizedDescription; status = "传输未完成"
+                self.error = error.localizedDescription; status = L10n.tr("Transfer incomplete")
             }
             if self.generation == generation { transferring = false; busy = false }
         }
@@ -110,7 +110,7 @@ private final class RelayModel: ObservableObject {
         task?.cancel(); left?.cancel(); right?.cancel()
         left = nil; right = nil; connected = false; busy = false; transferring = false
         leftFiles = []; rightFiles = []; leftSelection = nil; rightSelection = nil
-        status = "连接已关闭"
+        status = L10n.tr("Connection closed")
     }
 }
 
@@ -127,10 +127,10 @@ struct ServerTransferView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Label("服务器间传输", systemImage: "arrow.left.arrow.right").font(.headline)
+                Label(L10n.tr("Server-to-Server Transfer"), systemImage: "arrow.left.arrow.right").font(.headline)
                 Spacer()
-                Button("连接服务器") { relay.connect(model) }.disabled(relay.busy || relay.leftID == nil || relay.rightID == nil)
-                Button("完成") { relay.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L10n.tr("Connect Servers")) { relay.connect(model) }.disabled(relay.busy || relay.leftID == nil || relay.rightID == nil)
+                Button(L10n.tr("Done")) { relay.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
             }.padding(20)
             HSplitView {
                 pane(leftSide: true)
@@ -142,7 +142,7 @@ struct ServerTransferView: View {
                         ProgressView(value: relay.progress).frame(width: 170)
                         Text("\(Int(relay.progress * 100))% · \(ByteCountFormatter.string(fromByteCount: Int64(clamping: relay.transferred), countStyle: .file))").monospacedDigit()
                     } else { ProgressView().controlSize(.small) }
-                    Button("取消") { relay.cancel() }
+                    Button(L10n.tr("Cancel")) { relay.cancel() }
                 }
                 Text(relay.status).lineLimit(2)
                 Spacer()
@@ -152,15 +152,15 @@ struct ServerTransferView: View {
             .onDisappear { relay.cancel() }
             .onChange(of: relay.leftPath) { _, path in leftInput = path }
             .onChange(of: relay.rightPath) { _, path in rightInput = path }
-            .alert("确认传输文件？", isPresented: Binding(get: { request != nil }, set: { if !$0 { request = nil } })) {
-                TextField("目标绝对路径（含文件名）", text: $destination)
-                Button("取消", role: .cancel) { request = nil }
-                Button("开始传输") { if let request { relay.transfer(request, destination: destination) }; request = nil }
+            .alert(L10n.tr("Transfer File?"), isPresented: Binding(get: { request != nil }, set: { if !$0 { request = nil } })) {
+                TextField(L10n.tr("Absolute destination path (including filename)"), text: $destination)
+                Button(L10n.tr("Cancel"), role: .cancel) { request = nil }
+                Button(L10n.tr("Start Transfer")) { if let request { relay.transfer(request, destination: destination) }; request = nil }
             } message: {
-                Text("\(request?.sourceName ?? "")：\(request?.source ?? "")\n→ \(request?.destinationName ?? "")\n大小：\(ByteCountFormatter.string(fromByteCount: Int64(clamping: request?.size ?? 0), countStyle: .file))\n同名文件不会覆盖。")
+                Text(L10n.tr("\(request?.sourceName ?? ""): \(request?.source ?? "")\n→ \(request?.destinationName ?? "")\nSize: \(ByteCountFormatter.string(fromByteCount: Int64(clamping: request?.size ?? 0), countStyle: .file))\nExisting files will not be overwritten."))
             }
-            .alert("传输操作未完成", isPresented: Binding(get: { relay.error != nil }, set: { if !$0 { relay.error = nil } })) {
-                Button("知道了", role: .cancel) { relay.error = nil }
+            .alert(L10n.tr("Transfer operation incomplete"), isPresented: Binding(get: { relay.error != nil }, set: { if !$0 { relay.error = nil } })) {
+                Button(L10n.tr("OK"), role: .cancel) { relay.error = nil }
             } message: { Text(relay.error ?? "") }
     }
     private func pane(leftSide: Bool) -> some View {
@@ -170,14 +170,14 @@ struct ServerTransferView: View {
         let selection = leftSide ? $relay.leftSelection : $relay.rightSelection
         let files = leftSide ? relay.leftFiles : relay.rightFiles
         return VStack(spacing: 12) {
-            HostPicker(title: leftSide ? "服务器 A" : "服务器 B", hosts: model.hosts, selection: id)
+            HostPicker(title: leftSide ? L10n.tr("Server A") : L10n.tr("Server B"), hosts: model.hosts, selection: id)
                 .disabled(relay.busy || relay.connected)
             HStack {
                 Button {
                     let parent = (directory as NSString).deletingLastPathComponent
                     relay.navigate(leftSide: leftSide, path: parent.isEmpty ? "/" : parent)
                 } label: { Image(systemName: "arrow.up") }
-                TextField("目录路径", text: path).onSubmit { relay.navigate(leftSide: leftSide, path: path.wrappedValue) }
+                TextField(L10n.tr("Directory path"), text: path).onSubmit { relay.navigate(leftSide: leftSide, path: path.wrappedValue) }
                 Button { relay.navigate(leftSide: leftSide, path: path.wrappedValue) } label: { Image(systemName: "arrow.clockwise") }
             }.disabled(relay.busy || !relay.connected)
             List(files, selection: selection) { file in
@@ -191,7 +191,7 @@ struct ServerTransferView: View {
                         if file.isDirectory { relay.navigate(leftSide: leftSide, path: joined(directory, file.name)) }
                     }
             }
-            Button(leftSide ? "上传 A → B" : "下载 B → A") { propose(leftSide) }
+            Button(leftSide ? L10n.tr("Upload A → B") : L10n.tr("Download B → A")) { propose(leftSide) }
                 .disabled(relay.busy || !relay.connected || !files.contains { $0.name == selection.wrappedValue && !$0.isDirectory })
         }.padding(18).frame(minWidth: 400)
     }

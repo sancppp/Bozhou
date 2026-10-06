@@ -23,7 +23,7 @@ struct Packet {
     mutating func bytes(_ value: Data) { uint(UInt32(value.count)); data.append(value) }
     mutating func string(_ value: String) { bytes(Data(value.utf8)) }
     mutating func readByte() throws -> UInt8 {
-        guard index < data.count else { throw BozhouError.protocolError("SFTP 响应被截断") }
+        guard index < data.count else { throw BozhouError.protocolError(L10n.tr("Truncated SFTP response")) }
         defer { index += 1 }; return data[index]
     }
     mutating func readUInt() throws -> UInt32 {
@@ -34,7 +34,7 @@ struct Packet {
     mutating func readLong() throws -> UInt64 { let high = try readUInt(); return UInt64(high) << 32 | UInt64(try readUInt()) }
     mutating func readBytes() throws -> Data {
         let count = Int(try readUInt())
-        guard count <= data.count - index else { throw BozhouError.protocolError("SFTP 字段长度无效") }
+        guard count <= data.count - index else { throw BozhouError.protocolError(L10n.tr("Invalid SFTP field length")) }
         defer { index += count }; return data.subdata(in: index..<(index + count))
     }
     mutating func readString() throws -> String { String(decoding: try readBytes(), as: UTF8.self) }
@@ -47,7 +47,7 @@ struct Packet {
         if flags & 8 != 0 { _ = try readUInt(); modified = Date(timeIntervalSince1970: Double(try readUInt())) }
         if flags & 0x80000000 != 0 {
             let count = try readUInt()
-            guard count < 4096 else { throw BozhouError.protocolError("SFTP 属性数量异常") }
+            guard count < 4096 else { throw BozhouError.protocolError(L10n.tr("Invalid SFTP attribute count")) }
             for _ in 0..<count { _ = try readBytes(); _ = try readBytes() }
         }
         return RemoteFile(name: name, size: size, permissions: permissions, modified: modified)
@@ -65,6 +65,9 @@ private final class SFTPTransport: @unchecked Sendable {
     private let launch: SSHLaunch
     init(launch: SSHLaunch) { self.launch = launch }
     deinit { cancel(); launch.cleanup() }
+    var isClosed: Bool {
+        stateLock.lock(); defer { stateLock.unlock() }; return cancelled
+    }
     func cancel() {
         stateLock.lock(); cancelled = true; stateLock.unlock()
         if process.isRunning { process.terminate() }
@@ -83,7 +86,7 @@ private final class SFTPTransport: @unchecked Sendable {
         stateLock.lock(); defer { stateLock.unlock() }
         let text = String(decoding: diagnostic, as: UTF8.self) + "\n" +
             (launch.logURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "")
-        return .connection("SFTP 连接已关闭。请检查网络、认证与主机指纹。\n\(text)")
+        return .connection(L10n.tr("SFTP connection closed. Check the network, authentication and host fingerprint.\n\(text)"))
     }
     func start() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -126,7 +129,7 @@ private final class SFTPTransport: @unchecked Sendable {
                         try self.write(frame.data, deadline: deadline)
                         var header = Packet(data: try self.read(4, deadline: deadline))
                         let size = Int(try header.readUInt())
-                        guard (1...1_048_576).contains(size) else { throw BozhouError.protocolError("SFTP 数据包过大或无效") }
+                        guard (1...1_048_576).contains(size) else { throw BozhouError.protocolError(L10n.tr("SFTP packet is too large or invalid")) }
                         continuation.resume(returning: try self.read(size, deadline: deadline))
                     } catch {
                         self.cancel()
@@ -139,7 +142,7 @@ private final class SFTPTransport: @unchecked Sendable {
     private func wait(_ fd: Int32, events: Int16, deadline: Date) throws {
         while true {
             try check()
-            if Date() > deadline { throw BozhouError.connection("SFTP 操作超时（60 秒），连接已关闭") }
+            if Date() > deadline { throw BozhouError.connection(L10n.tr("SFTP operation timed out after 60 seconds. Connection closed.")) }
             var descriptor = pollfd(fd: fd, events: events, revents: 0)
             let result = poll(&descriptor, 1, 100)
             if result > 0 {
@@ -178,16 +181,17 @@ public actor SFTPClient {
     private var nextID: UInt32 = 0
     public init(launch: SSHLaunch) { transport = SFTPTransport(launch: launch) }
     public nonisolated func cancel() { transport.cancel() }
+    public nonisolated var isClosed: Bool { transport.isClosed }
     public func connect() async throws -> String {
         try await transport.start()
         var initPacket = Packet(); initPacket.byte(1); initPacket.uint(3)
         var response = Packet(data: try await transport.exchange(initPacket.data))
         guard try response.readByte() == 2, try response.readUInt() == 3 else {
-            transport.cancel(); throw BozhouError.protocolError("服务器不支持 SFTP v3")
+            transport.cancel(); throw BozhouError.protocolError(L10n.tr("Server does not support SFTP v3"))
         }
         var path = Packet(); path.string(".")
         var (_, reply) = try await request(16, path, expecting: 104)
-        guard try reply.readUInt() > 0 else { throw BozhouError.protocolError("无法获取远程目录") }
+        guard try reply.readUInt() > 0 else { throw BozhouError.protocolError(L10n.tr("Could not get remote directory")) }
         return try reply.readString()
     }
     public func list(_ path: String) async throws -> [RemoteFile] {
@@ -202,14 +206,14 @@ public actor SFTPClient {
                 var (type, response) = try await request(12, body, expecting: 104, eofAllowed: true)
                 if type == 101 { break }
                 let count = try response.readUInt()
-                guard count <= 100_000 else { throw BozhouError.protocolError("目录条目数量异常") }
+                guard count <= 100_000 else { throw BozhouError.protocolError(L10n.tr("Invalid directory entry count")) }
                 for _ in 0..<count {
                     let name = try response.readString()
                     _ = try response.readString()
                     let entry = try response.attributes(name: name)
                     if name != "." && name != ".." { result.append(entry) }
                 }
-                guard result.count <= 100_000 else { throw BozhouError.protocolError("目录超过 100000 个文件，请缩小范围") }
+                guard result.count <= 100_000 else { throw BozhouError.protocolError(L10n.tr("Directory has more than 100000 files. Narrow the selection.")) }
             }
             try await close(handle)
         } catch { try? await close(handle); throw error }
@@ -248,10 +252,10 @@ public actor SFTPClient {
         }
     }
     public func download(remote: String, local: URL, total: UInt64, progress: @Sendable (UInt64, UInt64) -> Void) async throws {
-        guard !FileManager.default.fileExists(atPath: local.path) else { throw BozhouError.invalid("本地文件已存在，请选择其他名称") }
+        guard !FileManager.default.fileExists(atPath: local.path) else { throw BozhouError.invalid(L10n.tr("Local file already exists. Choose another name.")) }
         let partial = local.deletingLastPathComponent().appendingPathComponent(".bozhou-\(UUID().uuidString).part")
         guard FileManager.default.createFile(atPath: partial.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
-            throw BozhouError.invalid("无法创建下载文件")
+            throw BozhouError.invalid(L10n.tr("Could not create download file"))
         }
         defer { try? FileManager.default.removeItem(at: partial) }
         let output = try FileHandle(forWritingTo: partial); defer { try? output.close() }
@@ -264,7 +268,7 @@ public actor SFTPClient {
                 var (type, response) = try await request(5, body, expecting: 103, eofAllowed: true)
                 if type == 101 { break }
                 let bytes = try response.readBytes()
-                guard !bytes.isEmpty else { throw BozhouError.protocolError("服务器返回空数据块") }
+                guard !bytes.isEmpty else { throw BozhouError.protocolError(L10n.tr("Server returned an empty data block")) }
                 try output.write(contentsOf: bytes)
                 offset += UInt64(bytes.count); progress(offset, total)
             }
@@ -291,7 +295,7 @@ public actor SFTPClient {
                 var (type, reply) = try await request(5, body, expecting: 103, eofAllowed: true)
                 if type == 101 { break }
                 let bytes = try reply.readBytes()
-                guard !bytes.isEmpty else { throw BozhouError.protocolError("服务器返回空数据块") }
+                guard !bytes.isEmpty else { throw BozhouError.protocolError(L10n.tr("Server returned an empty data block")) }
                 try await destination.writeChunk(handle: handle, offset: offset, bytes: bytes)
                 offset += UInt64(bytes.count); progress(offset, max(total, offset))
             }
@@ -305,7 +309,7 @@ public actor SFTPClient {
             try? await close(sourceHandle)
             if let targetHandle { try? await destination.close(targetHandle) }
             try? await destination.remove(partial, directory: false)
-            throw BozhouError.connection("\(error.localizedDescription)\n传输未完成；如连接已断开，请检查临时文件：\(partial)")
+            throw BozhouError.connection(L10n.tr("\(error.localizedDescription)\nTransfer incomplete. If disconnected, check the temporary file: \(partial)"))
         }
     }
     private func writeChunk(handle: Data, offset: UInt64, bytes: Data) async throws {
@@ -326,16 +330,16 @@ public actor SFTPClient {
         var packet = Packet(); packet.byte(type); packet.uint(id); packet.data.append(body.data)
         var reply = Packet(data: try await transport.exchange(packet.data))
         let responseType = try reply.readByte()
-        guard try reply.readUInt() == id else { throw BozhouError.protocolError("SFTP 请求编号不匹配") }
+        guard try reply.readUInt() == id else { throw BozhouError.protocolError(L10n.tr("SFTP request ID mismatch")) }
         if responseType == 101 {
             let code = try reply.readUInt()
             if code == 0 && expecting == 101 { return (responseType, reply) }
             if code == 1 && eofAllowed { return (responseType, reply) }
             let message = try reply.readString()
-            let meanings: [UInt32: String] = [1: "文件结束", 2: "文件不存在", 3: "没有访问权限", 4: "操作失败（文件可能已存在）", 8: "服务器不支持该操作"]
-            throw BozhouError.connection("SFTP：\(meanings[code] ?? "错误 \(code)")\n\(message)")
+            let meanings: [UInt32: String] = [1: L10n.tr("End of file"), 2: L10n.tr("File not found"), 3: L10n.tr("Permission denied"), 4: L10n.tr("Operation failed (the file may already exist)"), 8: L10n.tr("Server does not support this operation")]
+            throw BozhouError.connection(L10n.tr("SFTP: \(meanings[code] ?? L10n.tr("Error \(code)"))\n\(message)"))
         }
-        guard responseType == expecting else { throw BozhouError.protocolError("非预期的 SFTP 响应：\(responseType)") }
+        guard responseType == expecting else { throw BozhouError.protocolError(L10n.tr("Unexpected SFTP response: \(responseType)")) }
         return (responseType, reply)
     }
 }

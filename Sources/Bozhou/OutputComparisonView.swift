@@ -9,7 +9,7 @@ struct OutputComparisonView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("输出差异").font(.headline)
+                Text(L10n.tr("Output Diff")).font(.headline)
                 Spacer()
                 if let diff {
                     Text("− \(diff.removed)").foregroundStyle(.red)
@@ -17,12 +17,12 @@ struct OutputComparisonView: View {
                 }
             }
             HStack(alignment: .top, spacing: 20) {
-                summary(before, label: "原始"); summary(after, label: "对比")
+                summary(before, label: L10n.tr("Original")); summary(after, label: L10n.tr("Comparison"))
             }
             if let diff {
                 DiffColumns(diff: diff).frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else { ProgressView("正在比较…").frame(maxWidth: .infinity, maxHeight: .infinity) }
-            Text("红色 − 删除 · 绿色 + 新增 · 空行用于对齐 · 两侧同步滚动")
+            } else { ProgressView(L10n.tr("Comparing…")).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            Text(L10n.tr("Red − Removed · Green + Added · Blank rows align output · Scrolling is synchronized"))
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(16).background(.background, in: RoundedRectangle(cornerRadius: 12))
             .task(id: before.id.uuidString + after.id.uuidString) {
@@ -36,7 +36,7 @@ struct OutputComparisonView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack { Text(label); HostNameLabel(model.displayName(for: item)) }.font(.subheadline.weight(.medium))
             Text(item.command).font(.system(size: 11, design: .monospaced)).lineLimit(3).textSelection(.enabled)
-            Text("\(item.date.formatted()) · 退出 \(item.exitCode.map(String.init) ?? "未知")")
+            Text(L10n.tr("\(L10n.date(item.date)) · Exit \(item.exitCode.map(String.init) ?? L10n.tr("Unknown"))"))
                 .font(.caption2).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }

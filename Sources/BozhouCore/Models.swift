@@ -5,7 +5,7 @@ public enum BozhouError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .invalid(let s), .storage(let s), .connection(let s), .protocolError(let s): return s
-        case .cancelled: return "操作已取消"
+        case .cancelled: return L10n.tr("Operation cancelled")
         }
     }
 }
@@ -20,8 +20,8 @@ public enum Authentication: String, Codable, CaseIterable, Identifiable {
     public var title: String {
         switch self {
         case .agent: return "SSH Agent"
-        case .password: return "密码"
-        case .identity: return "私钥"
+        case .password: return L10n.tr("Password")
+        case .identity: return L10n.tr("Private Key")
         case .kerberos: return "Kerberos"
         }
     }
@@ -192,6 +192,7 @@ public struct Pin: Record, Equatable {
 }
 
 public struct AppSettings: Codable, Equatable {
+    public var language: AppLanguage = .english
     public var fontName: String = "Menlo-Regular"
     public var fontSize: Double = 14
     public var appearance: String = "light"
@@ -205,10 +206,11 @@ public struct AppSettings: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case fontName, fontSize, appearance, terminalBackgroundHex, autoReconnect, saveHistory, notifications, historyLimit
-        case expandedHostGroups
+        case expandedHostGroups, language
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        language = AppLanguage(rawValue: try values.decodeIfPresent(String.self, forKey: .language) ?? "") ?? .english
         fontName = try values.decodeIfPresent(String.self, forKey: .fontName) ?? "Menlo-Regular"
         fontSize = min(36, max(10, try values.decodeIfPresent(Double.self, forKey: .fontSize) ?? 14))
         appearance = try values.decodeIfPresent(String.self, forKey: .appearance) ?? "light"

@@ -6,11 +6,11 @@ public enum WorkspaceLocation {
         let origin = source.root.standardizedFileURL.resolvingSymlinksInPath()
         let target = destination.standardizedFileURL.resolvingSymlinksInPath()
         guard target != origin, !target.path.hasPrefix(origin.path + "/"), !origin.path.hasPrefix(target.path + "/") else {
-            throw BozhouError.storage("请选择与当前数据目录互不包含的新目录")
+            throw BozhouError.storage(L10n.tr("Choose a directory that neither contains nor is inside the current data directory"))
         }
         if fm.fileExists(atPath: target.path) {
             guard try fm.contentsOfDirectory(atPath: target.path).isEmpty else {
-                throw BozhouError.storage("目标目录必须为空，以免覆盖现有数据")
+                throw BozhouError.storage(L10n.tr("Destination directory must be empty to avoid overwriting data"))
             }
         }
         let paths = try AppPaths(root: target)

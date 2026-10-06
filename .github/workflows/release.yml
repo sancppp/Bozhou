@@ -81,6 +81,13 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" \
-            dist/Bozhou-*.zip dist/SHA256SUMS dist/MD5SUMS \
-            --verify-tag --notes-file dist/RELEASE_NOTES.md --title "泊舟 ${RELEASE_TAG#release/}"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              dist/Bozhou-*.zip dist/SHA256SUMS dist/MD5SUMS --clobber
+            gh release edit "$RELEASE_TAG" \
+              --notes-file dist/RELEASE_NOTES.md --title "Bozhou ${RELEASE_TAG#release/}"
+          else
+            gh release create "$RELEASE_TAG" \
+              dist/Bozhou-*.zip dist/SHA256SUMS dist/MD5SUMS \
+              --verify-tag --notes-file dist/RELEASE_NOTES.md --title "Bozhou ${RELEASE_TAG#release/}"
+          fi

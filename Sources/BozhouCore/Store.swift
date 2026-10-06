@@ -11,7 +11,7 @@ public final class Store: @unchecked Sendable {
 
     public init(url: URL) throws {
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
-            let error = BozhouError.storage("无法打开数据库")
+            let error = BozhouError.storage(L10n.tr("Could not open database"))
             sqlite3_close(db); throw error
         }
         sqlite3_busy_timeout(db, 3000)
@@ -19,7 +19,7 @@ public final class Store: @unchecked Sendable {
         try execute("PRAGMA foreign_keys=ON")
         let version = try query("PRAGMA user_version").first?.first ?? "0"
         guard ["0", "1", "2"].contains(version) else {
-            throw BozhouError.storage("数据库由更新版本的泊舟创建，请更新应用")
+            throw BozhouError.storage(L10n.tr("This database was created by a newer version of Bozhou. Update the app."))
         }
         for table in tables {
             try execute("CREATE TABLE IF NOT EXISTS \(table) (id TEXT PRIMARY KEY, payload TEXT NOT NULL, updated REAL NOT NULL)")
@@ -97,21 +97,21 @@ public final class Store: @unchecked Sendable {
     /// Online SQLite backup includes committed WAL pages without mutating the source.
     public func backup(to url: URL) throws {
         lock.lock(); defer { lock.unlock() }
-        guard !FileManager.default.fileExists(atPath: url.path) else { throw BozhouError.storage("目标数据库已存在") }
+        guard !FileManager.default.fileExists(atPath: url.path) else { throw BozhouError.storage(L10n.tr("Destination database already exists")) }
         var destination: OpaquePointer?
         guard sqlite3_open(url.path, &destination) == SQLITE_OK else {
-            sqlite3_close(destination); throw BozhouError.storage("无法创建目标数据库")
+            sqlite3_close(destination); throw BozhouError.storage(L10n.tr("Could not create destination database"))
         }
         defer { sqlite3_close(destination) }
         guard let backup = sqlite3_backup_init(destination, "main", db, "main") else { throw failure() }
         let result = sqlite3_backup_step(backup, -1)
         let finish = sqlite3_backup_finish(backup)
-        guard result == SQLITE_DONE, finish == SQLITE_OK else { throw BozhouError.storage("数据库备份失败") }
+        guard result == SQLITE_DONE, finish == SQLITE_OK else { throw BozhouError.storage(L10n.tr("Database backup failed")) }
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     private func validate(_ table: String) throws {
-        guard tables.contains(table) else { throw BozhouError.storage("无效的数据类型") }
+        guard tables.contains(table) else { throw BozhouError.storage(L10n.tr("Invalid record type")) }
     }
     private func statement(_ sql: String, _ values: [String]) throws -> OpaquePointer {
         var stmt: OpaquePointer?
@@ -142,6 +142,6 @@ public final class Store: @unchecked Sendable {
         }
     }
     private func failure() -> BozhouError {
-        .storage("数据库操作失败：\(db.map { String(cString: sqlite3_errmsg($0)) } ?? "未连接")")
+        .storage(L10n.tr("Database operation failed: \(db.map { String(cString: sqlite3_errmsg($0)) } ?? L10n.tr("Not connected"))"))
     }
 }

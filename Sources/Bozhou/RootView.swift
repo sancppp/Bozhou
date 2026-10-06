@@ -66,8 +66,8 @@ struct RootView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: model.sessions.count)
         .sheet(item: $model.editorHost) { HostEditor(host: $0).environmentObject(model) }
         .sheet(item: $model.sftpHost) { SFTPView(host: $0).environmentObject(model) }
-        .alert("操作未完成", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
-            Button("知道了", role: .cancel) { model.error = nil }
+        .alert(L10n.tr("Operation incomplete"), isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+            Button(L10n.tr("OK"), role: .cancel) { model.error = nil }
         } message: { Text(model.error ?? "") }
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
@@ -82,11 +82,11 @@ struct RootView: View {
     private var titlebar: some ToolbarContent {
         ToolbarItem(id: "workspace", placement: .navigation) {
             Button { model.activeSession = nil; model.splitSession = nil } label: {
-                HStack(spacing: 7) { BrandMark(size: 20); Text("泊舟").font(.system(size: 13, weight: .semibold)) }
+                HStack(spacing: 7) { BrandMark(size: 20); Text(L10n.tr("Bozhou")).font(.system(size: 13, weight: .semibold)) }
                     .padding(.horizontal, 10).frame(height: 32, alignment: .center)
                     .background(model.activeSession == nil ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 9))
                     .contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel("泊舟，返回工作空间").help("返回工作空间")
+            }.buttonStyle(.plain).accessibilityLabel(L10n.tr("Bozhou, return to workspace")).help(L10n.tr("Return to workspace"))
         }.flatToolbarItem()
         ToolbarItemGroup(placement: .navigation) {
             ForEach(model.sessions) { session in
@@ -104,33 +104,33 @@ struct RootView: View {
                     ForEach(model.sessions) { session in
                         Button(session.displayName.full) { model.activeSession = session.id; model.splitSession = nil }
                     }
-                } label: { Label("所有会话", systemImage: "rectangle.stack").frame(height: 32) }
-                    .menuStyle(.borderlessButton).help("切换会话")
+                } label: { Label(L10n.tr("All Sessions"), systemImage: "rectangle.stack").frame(height: 32) }
+                    .menuStyle(.borderlessButton).help(L10n.tr("Switch session"))
             }
         }.flatToolbarItem()
         ToolbarItem(id: "split", placement: .primaryAction) {
             if let active = model.active {
                 Menu {
                     ForEach([false, true], id: \.self) { vertical in
-                        Menu(vertical ? "上下分屏" : "左右分屏") {
-                            Button("新建本地终端") { split(vertical: vertical) { model.localTerminal() } }
-                            if let host = active.host { Button("新建当前主机连接") { split(vertical: vertical) { model.connect(host) } } }
+                        Menu(vertical ? L10n.tr("Split Top and Bottom") : L10n.tr("Split Left and Right")) {
+                            Button(L10n.tr("New Local Terminal")) { split(vertical: vertical) { model.localTerminal() } }
+                            if let host = active.host { Button(L10n.tr("New Connection to This Host")) { split(vertical: vertical) { model.connect(host) } } }
                             ForEach(model.sessions.filter { $0.id != active.id }) { other in
                                 Button(other.displayName.full) { model.splitVertical = vertical; model.splitSession = other.id }
                             }
                         }
                     }
-                    if model.splitSession != nil { Button("取消分屏") { model.splitSession = nil } }
-                } label: { Label("分屏", systemImage: "rectangle.split.2x1").frame(height: 32) }
+                    if model.splitSession != nil { Button(L10n.tr("Close Split")) { model.splitSession = nil } }
+                } label: { Label(L10n.tr("Split"), systemImage: "rectangle.split.2x1").frame(height: 32) }
                     .menuStyle(.borderlessButton).fixedSize()
             }
         }.flatToolbarItem()
         ToolbarItem(id: "new", placement: .primaryAction) {
             Menu {
-                Button("新建主机") { model.editorHost = Host() }
-                Button("本地终端") { model.localTerminal() }
+                Button(L10n.tr("New Host")) { model.editorHost = Host() }
+                Button(L10n.tr("Local Terminal")) { model.localTerminal() }
             } label: { Image(systemName: "plus").frame(width: 26, height: 32).contentShape(Rectangle()) }
-                .menuStyle(.borderlessButton).fixedSize().help("新建")
+                .menuStyle(.borderlessButton).fixedSize().help(L10n.tr("New"))
         }.flatToolbarItem()
     }
     private func sessionTab(_ session: TerminalSession) -> some View {
@@ -142,7 +142,7 @@ struct RootView: View {
             Button { model.closeSession(session.id) } label: {
                 Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
                     .frame(width: 22, height: 32).contentShape(Rectangle())
-            }.buttonStyle(.plain).help("关闭 \(session.title)")
+            }.buttonStyle(.plain).help(L10n.tr("Close \(session.title)"))
         }
         .font(.system(size: 12))
         .background(model.activeSession == session.id || model.splitSession == session.id ? Color.primary.opacity(0.10) : .clear,
@@ -157,13 +157,13 @@ struct RootView: View {
     }
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("工作空间").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary).padding(10)
+            Text(L10n.tr("Workspace")).font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary).padding(10)
             ForEach(Page.allCases) { page in
                 if page == .settings { Spacer() }
                 Button { model.page = page } label: {
                     HStack(spacing: 12) {
                         Image(systemName: page.symbol).font(.system(size: 15, weight: .medium)).frame(width: 20)
-                        Text(page.rawValue).font(.system(size: 13, weight: model.page == page ? .semibold : .regular))
+                        Text(page.title).font(.system(size: 13, weight: model.page == page ? .semibold : .regular))
                         Spacer()
                         if page == .hosts { Text("\(model.hosts.count)").font(.system(size: 11)).foregroundStyle(.secondary) }
                         if page == .pins && !model.pins.isEmpty { Text("\(model.pins.count)").font(.system(size: 11)).foregroundStyle(.secondary) }
@@ -174,7 +174,7 @@ struct RootView: View {
                         .contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
-        }.padding(8).frame(width: 160).background(Color(nsColor: .windowBackgroundColor))
+        }.padding(8).frame(width: 175).background(Color(nsColor: .windowBackgroundColor))
     }
 }
 

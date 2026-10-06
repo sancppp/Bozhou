@@ -43,7 +43,7 @@ struct HostListView: NSViewRepresentable {
             parent.onPreview(host)
         }
         table.rowMenu = { context.coordinator.parent.menu($0) }
-        table.setAccessibilityLabel("主机列表")
+        table.setAccessibilityLabel(L10n.tr("Host list"))
         context.coordinator.table = table
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
@@ -98,7 +98,7 @@ struct HostListView: NSViewRepresentable {
             let detailWidth: CGFloat = isFolder ? 0 : 210
             if let folder = item.folder {
                 let button = NSButton(image: NSImage(systemSymbolName: parent.expanded.contains(folder) ? "chevron.down" : "chevron.right",
-                                                     accessibilityDescription: "展开或收起 \(folder)")!, target: self, action: #selector(toggle(_:)))
+                                                     accessibilityDescription: L10n.tr("Expand or collapse \(folder)"))!, target: self, action: #selector(toggle(_:)))
                 button.isBordered = false; button.tag = row
                 button.frame = NSRect(x: indent, y: 4, width: 18, height: 20)
                 cell.addSubview(button)
@@ -119,11 +119,11 @@ struct HostListView: NSViewRepresentable {
                 subtitle.textColor = .secondaryLabelColor; subtitle.lineBreakMode = .byTruncatingTail
                 subtitle.frame = NSRect(x: indent + 46, y: 3, width: max(80, tableView.bounds.width - indent - 70 - detailWidth), height: 14)
                 subtitle.autoresizingMask = [.width]; cell.addSubview(subtitle)
-                cell.toolTip = "\(host.name)\n主机名：\(host.systemProfile?.hostname ?? "下次登录后采集")\n\(host.username)@\(host.address):\(host.port)\n"
-                    + (host.lastLoginAt.map { "上次登录 \($0.formatted())" } ?? "尚未登录")
+                cell.toolTip = L10n.tr("\(host.name)\nHostname: \(host.systemProfile?.hostname ?? L10n.tr("Collected at next login"))\n\(host.username)@\(host.address):\(host.port)\n")
+                    + (host.lastLoginAt.map { L10n.tr("Last login: \(L10n.date($0))") } ?? L10n.tr("Never logged in"))
                 let details = [
-                    host.systemProfile?.hostname ?? "主机名待采集",
-                    host.lastLoginAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "尚未登录"
+                    host.systemProfile?.hostname ?? L10n.tr("Hostname not yet collected"),
+                    host.lastLoginAt.map { L10n.date($0, abbreviated: true) } ?? L10n.tr("Never logged in")
                 ]
                 for (line, value) in details.enumerated() {
                     let label = NSTextField(labelWithString: value)

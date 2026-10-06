@@ -15,58 +15,58 @@ struct HostEditor: View {
             HStack(spacing: 12) {
                 Image(systemName: "server.rack").font(.system(size: 20)).foregroundStyle(sea)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(model.hosts.contains { $0.id == host.id } ? "主机详情" : "新建主机").font(.title3.weight(.semibold))
-                    Text("配置连接，留住下一次出发的坐标").font(.caption).foregroundStyle(.secondary)
+                    Text(model.hosts.contains { $0.id == host.id } ? L10n.tr("Host Details") : L10n.tr("New Host")).font(.title3.weight(.semibold))
+                    Text(L10n.tr("Save connection settings for your next session")).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark") }.buttonStyle(.plain).keyboardShortcut(.cancelAction)
             }.padding(22)
             Divider()
             Form {
-                Section("基本信息") {
-                    TextField("名称", text: $host.name)
-                    TextField("地址", text: $host.address, prompt: Text("example.com / 192.168.1.10"))
-                    TextField("端口", value: $host.port, format: .number.grouping(.never))
-                    TextField("用户名", text: $host.username)
-                    TextField("文件夹路径", text: $host.group, prompt: Text("例如：生产环境/华北"))
+                Section(L10n.tr("Basic Information")) {
+                    TextField(L10n.tr("Name"), text: $host.name)
+                    TextField(L10n.tr("Address"), text: $host.address, prompt: Text("example.com / 192.168.1.10"))
+                    TextField(L10n.tr("Port"), value: $host.port, format: .number.grouping(.never))
+                    TextField(L10n.tr("Username"), text: $host.username)
+                    TextField(L10n.tr("Folder path"), text: $host.group, prompt: Text(L10n.tr("e.g. Production/US East")))
                     if !model.groups.isEmpty {
-                        Picker("已有文件夹", selection: $host.group) {
-                            Text("根目录").tag("")
+                        Picker(L10n.tr("Existing folder"), selection: $host.group) {
+                            Text(L10n.tr("Root")).tag("")
                             ForEach(Array(Set(model.groups + (host.group.isEmpty ? [] : [host.group]))).sorted(), id: \.self) { Text($0).tag($0) }
                         }
                     }
-                    TextField("标签", text: $host.tags, prompt: Text("用空格分隔"))
-                    Picker("图标颜色", selection: $host.color) {
-                        Text("海蓝").tag("blue"); Text("青绿").tag("mint"); Text("暖橙").tag("orange")
+                    TextField(L10n.tr("Tags"), text: $host.tags, prompt: Text(L10n.tr("Separate with spaces")))
+                    Picker(L10n.tr("Icon color"), selection: $host.color) {
+                        Text(L10n.tr("Blue")).tag("blue"); Text(L10n.tr("Mint")).tag("mint"); Text(L10n.tr("Orange")).tag("orange")
                     }
-                    Toggle("星标主机", isOn: $host.favorite)
+                    Toggle(L10n.tr("Favorite host"), isOn: $host.favorite)
                 }
                 Section {
-                    Picker("登录方式", selection: $host.authentication) {
+                    Picker(L10n.tr("Login method"), selection: $host.authentication) {
                         ForEach(Authentication.allCases) { auth in Text(auth.title).tag(auth) }
                     }
                     if host.authentication == .identity {
-                        Picker("私钥", selection: $host.identityID) {
-                            Text("请选择").tag(nil as UUID?)
+                        Picker(L10n.tr("Private Key"), selection: $host.identityID) {
+                            Text(L10n.tr("Select")).tag(nil as UUID?)
                             ForEach(model.identities) { key in Text(key.name).tag(Optional(key.id)) }
                         }
-                        Text("需要对应公钥的私钥文件。请先在「密钥」中导入，或使用 SSH Agent。").font(.caption).foregroundStyle(.secondary)
+                        Text(L10n.tr("The matching private key file is required. Import it in Keys first, or use SSH Agent.")).font(.caption).foregroundStyle(.secondary)
                     } else if host.authentication == .kerberos {
-                        Text("使用本机 Kerberos 票据缓存（kinit / 企业登录）。请填写远端账号；无需密码，不转发票据。").font(.caption).foregroundStyle(.secondary)
+                        Text(L10n.tr("Uses the local Kerberos ticket cache (kinit or enterprise sign-in). Enter the remote username. No password is needed and tickets are not delegated.")).font(.caption).foregroundStyle(.secondary)
                     } else {
-                        SecureField("密码", text: $host.password, prompt: Text("留空则在首次连接时输入"))
+                        SecureField(L10n.tr("Password"), text: $host.password, prompt: Text(L10n.tr("Leave empty to enter at first connection")))
                         Text(host.authentication == .password
-                             ? "密码以明文保存在本地。目标主机与每一级跳板分别复用已保存的用户名和密码。"
-                             : "优先使用 SSH Agent；密码回退时复用此密码。首次输入后以明文保存在本地。")
+                             ? L10n.tr("Passwords are stored locally in plain text. The destination and each jump host reuse their own saved username and password.")
+                             : L10n.tr("SSH Agent is tried first. This password is reused for password fallback and stored locally in plain text after first entry."))
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                } header: { Text("身份验证") }
+                } header: { Text(L10n.tr("Authentication")) }
                 Section {
                     ForEach(Array(host.jumpHosts.enumerated()), id: \.element) { index, id in
                         HStack {
                             Text("\(index + 1)").font(.caption).foregroundStyle(.secondary).frame(width: 20)
                             if let jump = model.hosts.first(where: { $0.id == id }) { HostNameLabel(jump.displayName) }
-                            else { Text("已删除的主机") }
+                            else { Text(L10n.tr("Deleted host")) }
                             Spacer()
                             Button {
                                 guard let current = host.jumpHosts.firstIndex(of: id), current > 0 else { return }
@@ -76,67 +76,67 @@ struct HostEditor: View {
                         }
                     }
                     HStack {
-                        HostPicker(title: "添加跳板",
+                        HostPicker(title: L10n.tr("Add jump host"),
                                    hosts: model.hosts.filter { $0.id != host.id && !host.jumpHosts.contains($0.id) },
                                    selection: $jumpSelection)
-                        Button("添加") {
+                        Button(L10n.tr("Add")) {
                             if let id = jumpSelection { host.jumpHosts.append(id); jumpSelection = nil }
                         }.disabled(jumpSelection == nil)
                     }
-                    Text("按顺序连接；若跳板自身配置了上级跳板，会自动展开。每一级可使用不同的端口和认证。")
+                    Text(L10n.tr("Connects in order, expanding any nested jump hosts. Each hop can use a different port and authentication method."))
                         .font(.caption).foregroundStyle(.secondary)
-                } header: { Text("跳板链 · Host Chain") }
-                Section("终端环境") {
-                    TextField("默认 Shell", text: $host.shell, prompt: Text("留空使用登录 shell"))
-                    Text("环境变量（每行 NAME=value）").font(.caption).foregroundStyle(.secondary)
+                } header: { Text(L10n.tr("Jump Host Chain")) }
+                Section(L10n.tr("Terminal Environment")) {
+                    TextField(L10n.tr("Default shell"), text: $host.shell, prompt: Text(L10n.tr("Leave empty to use the login shell")))
+                    Text(L10n.tr("Environment variables (one NAME=value per line)")).font(.caption).foregroundStyle(.secondary)
                     TextEditor(text: $environment).font(.system(size: 12, design: .monospaced)).frame(height: 75)
-                    Text("bash / zsh 支持自动交互记录；其他 shell 可使用手动快照。").font(.caption).foregroundStyle(.secondary)
+                    Text(L10n.tr("Bash and Zsh support automatic interaction recording. Other shells support manual snapshots.")).font(.caption).foregroundStyle(.secondary)
                 }
-                Section("网络代理") {
-                    Toggle("启用代理", isOn: $proxyEnabled)
+                Section(L10n.tr("Network Proxy")) {
+                    Toggle(L10n.tr("Enable proxy"), isOn: $proxyEnabled)
                     if proxyEnabled {
-                        Picker("协议", selection: $proxy.kind) {
+                        Picker(L10n.tr("Protocol"), selection: $proxy.kind) {
                             Text("SOCKS5").tag(ProxyKind.socks5); Text("HTTP CONNECT").tag(ProxyKind.http)
                         }
-                        TextField("代理地址", text: $proxy.host)
-                        TextField("代理端口", value: $proxy.port, format: .number.grouping(.never))
-                        Text("支持无认证代理。代理可配置在直连主机或跳板链第一台主机上。").font(.caption).foregroundStyle(.secondary)
+                        TextField(L10n.tr("Proxy address"), text: $proxy.host)
+                        TextField(L10n.tr("Proxy port"), value: $proxy.port, format: .number.grouping(.never))
+                        Text(L10n.tr("Supports proxies without authentication, on a direct host or the first jump host.")).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Section("本地端口转发") {
+                Section(L10n.tr("Local Port Forwarding")) {
                     ForEach(host.forwards) { forward in
                         LocalForwardEditor(forward: $host.forwards.element(forward)) {
                             host.forwards.removeAll { $0.id == forward.id }
                         }
                     }
-                    Button("添加转发") { host.forwards.append(LocalForward()) }
-                    Text("连接终端时启用，仅监听本机 127.0.0.1，关闭该会话后停止。例如本地 58080 → 服务器 127.0.0.1:80。").font(.caption).foregroundStyle(.secondary)
+                    Button(L10n.tr("Add Forward")) { host.forwards.append(LocalForward()) }
+                    Text(L10n.tr("Starts with the terminal connection, listens only on local 127.0.0.1, and stops when the session closes. Example: local 58080 → server 127.0.0.1:80.")).font(.caption).foregroundStyle(.secondary)
                 }
-                Section("登录与系统信息") {
-                    LabeledContent("主机名") {
-                        Text(host.systemProfile?.hostname ?? "下次登录后采集")
+                Section(L10n.tr("Login & System Information")) {
+                    LabeledContent(L10n.tr("Hostname")) {
+                        Text(host.systemProfile?.hostname ?? L10n.tr("Collected at next login"))
                             .textSelection(.enabled)
                     }
-                    LabeledContent("添加时间", value: host.createdAt.formatted())
-                    LabeledContent("上次成功登录", value: host.lastLoginAt?.formatted() ?? "尚未登录")
+                    LabeledContent(L10n.tr("Date added"), value: L10n.date(host.createdAt))
+                    LabeledContent(L10n.tr("Last successful login"), value: host.lastLoginAt.map { L10n.date($0) } ?? L10n.tr("Never logged in"))
                     if let profile = host.systemProfile {
-                        LabeledContent("采集时间", value: profile.collectedAt.formatted())
-                        profileField("操作系统", profile.operatingSystem)
-                        profileField("内核与架构", profile.kernel)
+                        LabeledContent(L10n.tr("Collected at"), value: L10n.date(profile.collectedAt))
+                        profileField(L10n.tr("Operating system"), profile.operatingSystem)
+                        profileField(L10n.tr("Kernel & architecture"), profile.kernel)
                         profileField("CPU", profile.cpu)
-                        profileField("内存", profile.memory)
+                        profileField(L10n.tr("Memory"), profile.memory)
                     }
-                    Text("每次登录通过只读命令更新主机名、系统、CPU 与内存信息。").font(.caption).foregroundStyle(.secondary)
+                    Text(L10n.tr("Each login updates hostname, OS, CPU and memory information using read-only commands.")).font(.caption).foregroundStyle(.secondary)
                 }
-                Section("备注") { TextEditor(text: $host.notes).frame(height: 55) }
+                Section(L10n.tr("Notes")) { TextEditor(text: $host.notes).frame(height: 55) }
             }.formStyle(.grouped)
             if let validation { Label(validation, systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.red).padding(12) }
             Divider()
             HStack {
-                Button("取消") { dismiss() }
+                Button(L10n.tr("Cancel")) { dismiss() }
                 Spacer()
-                Button("保存") { save(connect: false) }
-                Button("保存并连接") { save(connect: true) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                Button(L10n.tr("Save")) { save(connect: false) }
+                Button(L10n.tr("Save and Connect")) { save(connect: true) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }.controlSize(.large).padding(20)
         }.frame(width: 540, height: 740).tint(sea)
             .onAppear {
@@ -146,7 +146,7 @@ struct HostEditor: View {
     }
     private func profileField(_ title: String, _ value: String) -> some View {
         DisclosureGroup(title) {
-            Text(value.isEmpty ? "系统未提供此信息" : value).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+            Text(value.isEmpty ? L10n.tr("System did not provide this information") : value).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -154,9 +154,9 @@ struct HostEditor: View {
         do {
             var values: [String: String] = [:]
             for line in environment.split(separator: "\n").map(String.init) where !line.trimmingCharacters(in: .whitespaces).isEmpty {
-                guard let equal = line.firstIndex(of: "=") else { throw BozhouError.invalid("环境变量格式应为 NAME=value") }
+                guard let equal = line.firstIndex(of: "=") else { throw BozhouError.invalid(L10n.tr("Environment variables must use NAME=value")) }
                 let name = String(line[..<equal]).trimmingCharacters(in: .whitespaces)
-                guard values[name] == nil else { throw BozhouError.invalid("环境变量重复：\(name)") }
+                guard values[name] == nil else { throw BozhouError.invalid(L10n.tr("Duplicate environment variable: \(name)")) }
                 values[name] = String(line[line.index(after: equal)...])
             }
             host.name = host.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -177,13 +177,13 @@ private struct LocalForwardEditor: View {
     var body: some View {
         VStack(alignment: .leading) {
             HStack {
-                Toggle("启用", isOn: $forward.enabled)
+                Toggle(L10n.tr("Enable"), isOn: $forward.enabled)
                 Spacer()
-                Button("移除", action: remove)
+                Button(L10n.tr("Remove"), action: remove)
             }
-            TextField("本地端口", value: $forward.localPort, format: .number.grouping(.never))
-            TextField("目标地址（从服务器访问）", text: $forward.remoteHost)
-            TextField("目标端口", value: $forward.remotePort, format: .number.grouping(.never))
+            TextField(L10n.tr("Local port"), value: $forward.localPort, format: .number.grouping(.never))
+            TextField(L10n.tr("Destination address (as seen by the server)"), text: $forward.remoteHost)
+            TextField(L10n.tr("Destination port"), value: $forward.remotePort, format: .number.grouping(.never))
         }
     }
 }

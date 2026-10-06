@@ -28,20 +28,20 @@ shutil.copy2(root / "Vendor" / "SwiftTerm" / "LICENSE", resources / "SwiftTerm-L
 shutil.copy2(root / "Vendor" / "bash-preexec" / "LICENSE.md", resources / "bash-preexec-LICENSE.md")
 info = {
     "CFBundleIdentifier": "dev.bozhou.ssh",
-    "CFBundleName": "泊舟",
-    "CFBundleDisplayName": "泊舟",
+    "CFBundleName": "Bozhou",
+    "CFBundleDisplayName": "Bozhou",
     "CFBundleExecutable": "Bozhou",
     "CFBundlePackageType": "APPL",
     "CFBundleShortVersionString": version,
     "CFBundleVersion": version,
     "CFBundleIconFile": "Bozhou",
-    "CFBundleDevelopmentRegion": "zh_CN",
-    "CFBundleLocalizations": ["zh_CN", "zh-Hans"],
+    "CFBundleDevelopmentRegion": "en",
+    "CFBundleLocalizations": ["en", "zh-Hans"],
     "LSMinimumSystemVersion": "14.0",
     "LSApplicationCategoryType": "public.app-category.developer-tools",
     "NSHighResolutionCapable": True,
     "NSPrincipalClass": "NSApplication",
-    "NSHumanReadableCopyright": "Copyright © 2026 泊舟。SwiftTerm is licensed under MIT.",
+    "NSHumanReadableCopyright": "Copyright © 2026 Bozhou. SwiftTerm is licensed under MIT.",
 }
 with (app / "Contents" / "Info.plist").open("wb") as stream:
     plistlib.dump(info, stream, sort_keys=False)

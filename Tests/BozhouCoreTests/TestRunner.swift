@@ -51,6 +51,7 @@ struct TestRunner {
         }
         let test = CoreTests()
         let cases: [(String, () throws -> Void)] = [
+            ("双语资源、插值安全、英语默认与设置迁移", test.testLocalizationAndLanguageMigration),
             ("SQLite 持久化、更新、历史裁剪与独立收藏", test.testPersistenceAndHistoryRetention),
             ("多跳认证参数与 SSH 配置隔离", test.testChainPreservesHopSettingsAndIsolation),
             ("密码迁移、逐级复用、失败回退与并发字段保留", test.testPasswordMigrationAndCacheIsolation),
@@ -58,6 +59,7 @@ struct TestRunner {
             ("循环引用与输入注入拦截", test.testRejectsCyclesAndInjection),
             ("OSC 逐字节分片、命令和输出限额", test.testRecorderEveryByteBoundaryAndOutputCap),
             ("忽略其他会话标记并保留中断输出", test.testRecorderIgnoresForeignTokenAndFlushesOnDisconnect),
+            ("输出尾部环形缓存、跨界分片与快照隔离", test.testRecorderTailAcrossWrapsAndChunks),
             ("异常上下文脱敏、权限、体积和保留数量", test.testTerminalDiagnosticPersistence),
             ("SFTP 二进制编码、中文与截断校验", test.testPacketHandlesUnicodeAndRejectsTruncation),
             ("真实 bash / zsh 交互边界与退出码", test.testRealBashAndZshShellHooks),

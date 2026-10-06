@@ -21,34 +21,34 @@ public struct ConnectionBuilder {
     public init(paths: AppPaths, askPass: String) { self.paths = paths; self.askPass = askPass }
 
     public func validate(_ host: Host, hosts: [Host], identities: [Identity]) throws {
-        guard !host.name.trimmingCharacters(in: .whitespaces).isEmpty else { throw BozhouError.invalid("请输入主机名称") }
-        guard validAddress(host.address) else { throw BozhouError.invalid("主机地址只能包含域名、IPv4 或 IPv6 地址") }
-        guard (1...65535).contains(host.port) else { throw BozhouError.invalid("端口范围是 1～65535") }
+        guard !host.name.trimmingCharacters(in: .whitespaces).isEmpty else { throw BozhouError.invalid(L10n.tr("Enter a host name")) }
+        guard validAddress(host.address) else { throw BozhouError.invalid(L10n.tr("Host address must be a domain name, IPv4 or IPv6 address")) }
+        guard (1...65535).contains(host.port) else { throw BozhouError.invalid(L10n.tr("Port must be between 1 and 65535")) }
         guard !host.username.isEmpty, host.username.range(of: #"^[a-zA-Z0-9_.@\\-]+$"#, options: .regularExpression) != nil,
-              !host.username.hasPrefix("-") else { throw BozhouError.invalid("请输入有效的 SSH 用户名") }
+              !host.username.hasPrefix("-") else { throw BozhouError.invalid(L10n.tr("Enter a valid SSH username")) }
         if host.authentication == .identity {
-            guard let key = identities.first(where: { $0.id == host.identityID }) else { throw BozhouError.invalid("请先选择一个私钥") }
+            guard let key = identities.first(where: { $0.id == host.identityID }) else { throw BozhouError.invalid(L10n.tr("Select a private key first")) }
             guard key.privateKeyPath.hasPrefix("/"), safeConfigPath(key.privateKeyPath),
-                  FileManager.default.isReadableFile(atPath: key.privateKeyPath) else { throw BozhouError.invalid("私钥文件不存在、路径无效或不可读取") }
+                  FileManager.default.isReadableFile(atPath: key.privateKeyPath) else { throw BozhouError.invalid(L10n.tr("Private key file is missing, invalid or unreadable")) }
         }
         if !host.shell.isEmpty {
             guard host.shell.hasPrefix("/"), host.shell.range(of: #"^/[a-zA-Z0-9_./-]+$"#, options: .regularExpression) != nil else {
-                throw BozhouError.invalid("Shell 必须是绝对路径，例如 /bin/bash")
+                throw BozhouError.invalid(L10n.tr("Shell must be an absolute path, such as /bin/bash"))
             }
         }
         for (name, value) in host.environment {
             guard name.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil,
-                  !value.contains("\0") else { throw BozhouError.invalid("环境变量名称或值无效：\(name)") }
+                  !value.contains("\0") else { throw BozhouError.invalid(L10n.tr("Invalid environment variable name or value: \(name)")) }
         }
         if let proxy = host.proxy {
-            guard validAddress(proxy.host), (1...65535).contains(proxy.port) else { throw BozhouError.invalid("代理地址或端口无效") }
-            guard host.jumpHosts.isEmpty else { throw BozhouError.invalid("同一主机不能同时设置网络代理和跳板链") }
+            guard validAddress(proxy.host), (1...65535).contains(proxy.port) else { throw BozhouError.invalid(L10n.tr("Invalid proxy address or port")) }
+            guard host.jumpHosts.isEmpty else { throw BozhouError.invalid(L10n.tr("A host cannot use both a network proxy and a jump host chain")) }
         }
         var ports: Set<Int> = []
         for forward in host.forwards where forward.enabled {
             guard (1...65535).contains(forward.localPort), (1...65535).contains(forward.remotePort),
                   validAddress(forward.remoteHost), ports.insert(forward.localPort).inserted else {
-                throw BozhouError.invalid("转发端口须在 1～65535，同一主机的本地端口不能重复，目标地址须有效")
+                throw BozhouError.invalid(L10n.tr("Forwarding ports must be between 1 and 65535, local ports must be unique per host, and destination addresses must be valid"))
             }
         }
         _ = try chain(for: host, hosts: hosts)
@@ -57,11 +57,11 @@ public struct ConnectionBuilder {
     public func chain(for host: Host, hosts: [Host]) throws -> [Host] {
         var result: [Host] = [], visited: Set<UUID> = [host.id]
         func visit(_ id: UUID) throws {
-            guard visited.insert(id).inserted else { throw BozhouError.invalid("跳板链有循环或重复主机") }
-            guard let hop = hosts.first(where: { $0.id == id }) else { throw BozhouError.invalid("跳板主机已被删除，请重新选择") }
+            guard visited.insert(id).inserted else { throw BozhouError.invalid(L10n.tr("Jump host chain contains a cycle or duplicate host")) }
+            guard let hop = hosts.first(where: { $0.id == id }) else { throw BozhouError.invalid(L10n.tr("A jump host has been deleted. Select another host.")) }
             for next in hop.jumpHosts { try visit(next) }
             result.append(hop)
-            guard result.count <= 12 else { throw BozhouError.invalid("跳板链最多支持 12 级") }
+            guard result.count <= 12 else { throw BozhouError.invalid(L10n.tr("Jump host chains support up to 12 hops")) }
         }
         for id in host.jumpHosts { try visit(id) }
         return result
@@ -73,7 +73,7 @@ public struct ConnectionBuilder {
         for hop in chain { try validate(hop, hosts: hosts, identities: identities) }
         // A network proxy may precede the first hop only.
         guard !chain.dropFirst().contains(where: { $0.proxy != nil }) else {
-            throw BozhouError.invalid("网络代理只能配置在跳板链的第一台主机上")
+            throw BozhouError.invalid(L10n.tr("A network proxy can only be configured on the first jump host"))
         }
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let directory = paths.sessions.appendingPathComponent(token, isDirectory: true)
@@ -145,6 +145,7 @@ public struct ConnectionBuilder {
             env["BOZHOU_AUTH_HOST"] = host.id.uuidString
             env["BOZHOU_AUTH_DATABASE"] = paths.database.path
             env["BOZHOU_AUTH_SESSION"] = directory.path
+            env["BOZHOU_LANGUAGE"] = L10n.language.rawValue
             env["DISPLAY"] = "bozhou:0"
             env["TERM"] = "xterm-256color"
             env["LANG"] = env["LANG"] ?? "en_US.UTF-8"
