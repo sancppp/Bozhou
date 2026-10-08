@@ -54,6 +54,7 @@ struct TestRunner {
             ("双语资源、插值安全、英语默认与设置迁移", test.testLocalizationAndLanguageMigration),
             ("SQLite 持久化、更新、历史裁剪与独立收藏", test.testPersistenceAndHistoryRetention),
             ("多跳认证参数与 SSH 配置隔离", test.testChainPreservesHopSettingsAndIsolation),
+            ("完整跳板/代理路径的指纹隔离与稳定性、直连兼容", test.testHostKeysFollowConnectionRoute),
             ("密码迁移、逐级复用、失败回退与并发字段保留", test.testPasswordMigrationAndCacheIsolation),
             ("Kerberos 配置由真实 OpenSSH 解析", test.testKerberosConfig),
             ("循环引用与输入注入拦截", test.testRejectsCyclesAndInjection),

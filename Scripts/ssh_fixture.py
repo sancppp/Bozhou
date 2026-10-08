@@ -33,6 +33,9 @@ os.chmod(ROOT / "id_ed25519", 0o600)
 
 
 class Server(asyncssh.SSHServer):
+    def __init__(self, routes=None):
+        self.routes = routes or {}
+
     def connection_made(self, connection):
         self.connection = connection
         CONNECTIONS.add(connection)
@@ -57,6 +60,10 @@ class Server(asyncssh.SSHServer):
         return username in ("jump1", "jump2", "tester") and key == CLIENT_KEY.convert_to_public()
 
     def connection_requested(self, dest_host, dest_port, orig_host, orig_port):
+        # Different gateways resolve the same documentation-only endpoint to
+        # different loopback servers. No traffic leaves the fixture.
+        if (dest_host, dest_port) in self.routes:
+            return self.connection.forward_connection("127.0.0.1", self.routes[(dest_host, dest_port)])
         # Forward only to project-owned loopback SSH/HTTP listeners.
         return dest_host == "127.0.0.1" and dest_port in PORTS + [HTTP_PORT]
 
@@ -211,10 +218,31 @@ async def main():
     (ROOT / "known_hosts").write_text("".join(f"[127.0.0.1]:{port} {key}\n" for port in PORTS))
     wrong_key = asyncssh.generate_private_key("ssh-ed25519").export_public_key().decode().strip()
     (ROOT / "wrong_known_hosts").write_text("".join(f"[127.0.0.1]:{port} {wrong_key}\n" for port in PORTS))
+    routes = []
+    for site in ("a", "b"):
+        mapping = {}
+        for role, address in (("target", "192.0.2.2"), ("relay", "192.0.2.1"), ("gateway", None)):
+            remote = REMOTE / f"route-{site}-{role}"
+            remote.mkdir(exist_ok=True)
+            (remote / f"site-{site}.txt").write_text(f"site-{site}\n")
+            route_key = asyncssh.generate_private_key("ssh-ed25519")
+            server = await asyncssh.create_server(
+                lambda mapping=mapping: Server(mapping), "127.0.0.1", 0,
+                server_host_keys=[route_key],
+                process_factory=lambda process, remote=remote: run_command(process, remote), encoding=None,
+                sftp_factory=lambda chan, remote=remote: asyncssh.SFTPServer(chan, chroot=str(remote)),
+            )
+            servers.append(server)
+            if address:
+                mapping[(address, 22)] = server.get_port()
+            else:
+                routes.append({"gateway_port": server.get_port(), "site": site,
+                               "gateway_key": route_key.export_public_key().decode().strip()})
     with socket.socket() as free_port:
         free_port.bind(("127.0.0.1", 0))
         local_port = free_port.getsockname()[1]
-    (ROOT / "fixture.json").write_text(json.dumps({"ports": PORTS, "http_port": HTTP_PORT, "forward_port": local_port, "root": str(ROOT)}))
+    (ROOT / "fixture.json").write_text(json.dumps({"ports": PORTS, "http_port": HTTP_PORT, "forward_port": local_port,
+                                                "root": str(ROOT), "routes": routes, "wrong_key": wrong_key}))
     print(json.dumps({"ready": True, "ports": PORTS}), flush=True)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

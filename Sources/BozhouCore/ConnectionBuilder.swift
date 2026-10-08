@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public struct SSHLaunch {
     public var executable = "/usr/bin/ssh"
@@ -98,8 +99,12 @@ public struct ConnectionBuilder {
                 NumberOfPasswordPrompts 3
 
             """
-            for (index, item) in (chain + [host]).enumerated() {
+            let route = chain + [host]
+            for (index, item) in route.enumerated() {
                 config += "\nHost bz-\(index)\n    HostName \(item.address)\n    User \(item.username)\n    Port \(item.port)\n"
+                if let alias = hostKeyAlias(for: Array(route.prefix(index + 1))) {
+                    config += "    HostKeyAlias \(alias)\n"
+                }
                 switch item.authentication {
                 case .password:
                     config += "    PreferredAuthentications keyboard-interactive,password\n    PubkeyAuthentication no\n"
@@ -166,6 +171,24 @@ public struct ConnectionBuilder {
             try? FileManager.default.removeItem(at: directory)
             throw error
         }
+    }
+
+    private func hostKeyAlias(for route: [Host]) -> String? {
+        // Keep direct connections compatible with existing address/port fingerprints.
+        // Routed addresses belong to the network reached through the entire prefix,
+        // including a proxy before the first jump. Apply this to intermediate hops too.
+        guard route.count > 1 || route.first?.proxy != nil else { return nil }
+        var components = ["bozhou-route-v1"]
+        for host in route {
+            if let proxy = host.proxy {
+                components += ["proxy", proxy.kind.rawValue, proxy.host.lowercased(), String(proxy.port)]
+            }
+            components += ["ssh", host.address.lowercased(), String(host.port)]
+        }
+        // NUL cannot occur in validated endpoints. Do not include session IDs, saved
+        // record IDs, names or credentials: edits must not reset an endpoint's trust.
+        let digest = SHA256.hash(data: Data(components.joined(separator: "\0").utf8))
+        return "bozhou-route-v1-" + digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private func validAddress(_ value: String) -> Bool {

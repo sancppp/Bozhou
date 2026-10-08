@@ -9,7 +9,14 @@ enum IntegrationTests {
         let paths = try AppPaths(root: root.appendingPathComponent("client Application Support ' 中文 100%"))
         try Data(contentsOf: root.appendingPathComponent("known_hosts")).write(to: paths.knownHosts)
         let askpass = root.appendingPathComponent("test-askpass")
-        try "#!/bin/sh\nprintf '%s\\n' bozhou-test-only\n".write(to: askpass, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        case "$1" in
+            *yes/no*) printf '%s\\n' yes ;;
+            *) printf '%s\\n' bozhou-test-only ;;
+        esac
+
+        """.write(to: askpass, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: askpass.path)
         let identity = Identity(name: "测试密钥", privateKeyPath: root.appendingPathComponent("id_ed25519").path)
         let builder = ConnectionBuilder(paths: paths, askPass: askpass.path)
@@ -151,6 +158,7 @@ enum IntegrationTests {
         tunnel.terminate(); tunnel.waitUntilExit()
         print("PASS 两级跳板端口转发 HTTP 响应一致，本地端口冲突时立即失败")
 
+        let trustedKnownHosts = try Data(contentsOf: paths.knownHosts)
         try Data(contentsOf: root.appendingPathComponent("wrong_known_hosts")).write(to: paths.knownHosts)
         let rejected = Process(), rejection = Pipe()
         rejected.executableURL = URL(fileURLWithPath: ssh.executable)
@@ -163,12 +171,14 @@ enum IntegrationTests {
         XCTAssertTrue(rejected.terminationStatus != 0)
         let rejectionLog = try String(contentsOf: ssh.logURL!, encoding: .utf8)
         XCTAssertTrue((String(decoding: rejectionData, as: UTF8.self) + rejectionLog).contains("REMOTE HOST IDENTIFICATION HAS CHANGED"))
-        try Data(contentsOf: root.appendingPathComponent("known_hosts")).write(to: paths.knownHosts)
+        try trustedKnownHosts.write(to: paths.knownHosts)
         print("PASS 主机指纹变化时 OpenSSH 拒绝连接")
+
+        try await RouteIntegrationTests.run(root: root, fixture: json, identity: identity, askpass: askpass.path)
 
         // Prepare explicit test-only app data for UI verification; production data remains empty.
         let uiPaths = try AppPaths(root: root.appendingPathComponent("ui-app"))
-        try Data(contentsOf: root.appendingPathComponent("known_hosts")).write(to: uiPaths.knownHosts)
+        try trustedKnownHosts.write(to: uiPaths.knownHosts)
         let store = try Store(url: uiPaths.database)
         for item in try store.list(Host.self) { try store.delete(Host.self, id: item.id) }
         for item in try store.list(Identity.self) { try store.delete(Identity.self, id: item.id) }

@@ -181,7 +181,7 @@
 "Host saved" = "Host saved";
 "Hostname" = "Hostname";
 "Hostname not yet collected" = "Hostname not yet collected";
-"Hostnames are stored as hashes. If a server key changes legitimately, verify its new fingerprint through a trusted channel before removing the old record with the command below." = "Hostnames are stored as hashes. If a server key changes legitimately, verify its new fingerprint through a trusted channel before removing the old record with the command below.";
+"Host identifiers are stored as hashes and separated by connection route. After verifying a legitimate key change through a trusted channel, use the exact host identifier from the SSH warning in the command below." = "Host identifiers are stored as hashes and separated by connection route. After verifying a legitimate key change through a trusted channel, use the exact host identifier from the SSH warning in the command below.";
 "Hosts" = "Hosts";
 "Hosts: {0}" = "Hosts: {0}";
 "Icon color" = "Icon color";
@@ -434,7 +434,7 @@
 "Your Connection Credentials" = "Your Connection Credentials";
 "\nAn interrupted upload may leave a partial file with the same name. Check it before retrying." = "\nAn interrupted upload may leave a partial file with the same name. Check it before retrying.";
 "e.g. Production/US East" = "e.g. Production/US East";
-"ssh-keygen -R '[server-address]:port' -f '{0}'" = "ssh-keygen -R '[server-address]:port' -f '{0}'";
+"ssh-keygen -R 'host-identifier-from-warning' -f '{0}'" = "ssh-keygen -R 'host-identifier-from-warning' -f '{0}'";
 "{0} · Exit {1}" = "{0} · Exit {1}";
 "{0}: {1}\n→ {2}\nSize: {3}\nExisting files will not be overwritten." = "{0}: {1}\n→ {2}\nSize: {3}\nExisting files will not be overwritten.";
 "{0}\nHostname: {1}\n{2}@{3}:{4}\n" = "{0}\nHostname: {1}\n{2}@{3}:{4}\n";

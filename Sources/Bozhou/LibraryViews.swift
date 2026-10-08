@@ -292,8 +292,8 @@ struct KnownHostsPage: View {
                 PageHeader(title: L10n.tr("Known Hosts"), detail: L10n.tr("Fingerprints are saved after confirmation on first connection. Changed fingerprints block connections."))
                 Button(L10n.tr("Refresh")) { load() }
             }
-            Text(L10n.tr("Hostnames are stored as hashes. If a server key changes legitimately, verify its new fingerprint through a trusted channel before removing the old record with the command below.")).font(.caption).foregroundStyle(.secondary)
-            Text(L10n.tr("ssh-keygen -R '[server-address]:port' -f '\(model.paths.knownHosts.path)'")).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+            Text(L10n.tr("Host identifiers are stored as hashes and separated by connection route. After verifying a legitimate key change through a trusted channel, use the exact host identifier from the SSH warning in the command below.")).font(.caption).foregroundStyle(.secondary)
+            Text(L10n.tr("ssh-keygen -R 'host-identifier-from-warning' -f '\(model.paths.knownHosts.path)'")).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
             ScrollView([.vertical, .horizontal]) {
                 Text(content.isEmpty ? L10n.tr("No trusted hosts yet") : content).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
