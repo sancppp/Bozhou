@@ -101,6 +101,10 @@ private final class SFTPTransport: @unchecked Sendable {
                     self.process.standardError = self.errors
                     self.errors.fileHandleForReading.readabilityHandler = { [weak self] handle in
                         let data = handle.availableData
+                        guard !data.isEmpty else {
+                            handle.readabilityHandler = nil
+                            return
+                        }
                         guard let self else { return }
                         self.stateLock.lock()
                         self.diagnostic.append(data)

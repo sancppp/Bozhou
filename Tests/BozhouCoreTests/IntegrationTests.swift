@@ -1,7 +1,15 @@
 import Foundation
+import Darwin
 import BozhouCore
 
 enum IntegrationTests {
+    private static func processCPUTime() -> TimeInterval {
+        var usage = rusage()
+        getrusage(RUSAGE_SELF, &usage)
+        return TimeInterval(usage.ru_utime.tv_sec) + TimeInterval(usage.ru_utime.tv_usec) / 1_000_000
+            + TimeInterval(usage.ru_stime.tv_sec) + TimeInterval(usage.ru_stime.tv_usec) / 1_000_000
+    }
+
     static func run() async throws {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".runtime/integration")
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("fixture.json"))) as! [String: Any]
@@ -81,6 +89,10 @@ enum IntegrationTests {
         client.cancel()
         do { _ = try await client.list("/"); fail("取消后不能继续请求") }
         catch { print("PASS SFTP 取消与管道退出") }
+        let idleCPUStart = processCPUTime()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(processCPUTime() - idleCPUStart < 0.1)
+        print("PASS SFTP stderr EOF 后停止文件句柄监听")
 
         let ssh = try builder.build(host: host, hosts: hosts, identities: [identity])
         defer { ssh.cleanup() }
