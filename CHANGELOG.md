@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.1
+
+### SSH host key isolation
+
+- Scope routed host fingerprints to the complete jump-host or network-proxy path, so identical addresses behind different routes can connect independently.
+- Reuse each route fingerprint across terminal sessions, SFTP, reconnects and credential edits while preserving existing direct-connection trust records.
+- Require a one-time fingerprint confirmation for routed hosts upgrading from address-only trust records; the old fingerprint database does not need to be deleted.
+
+### Performance and reliability
+
+- Stop monitoring SFTP stderr after EOF, preventing terminated SFTP processes from driving Bozhou to 100% CPU.
+- Add route-isolation coverage and an end-to-end regression that verifies SFTP cancellation returns to idle CPU usage.
+
 ## 1.1.0
 
 ### Languages and documentation
