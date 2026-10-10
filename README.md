@@ -29,6 +29,8 @@
 
 Bozhou uses macOS `/usr/bin/ssh` with a separate configuration for each connection and a workspace-specific host fingerprint database. It does not read `~/.ssh/config`, change your `known_hosts`, require an account or install an agent on your servers.
 
+Hosts with the same IP and port behind different jump chains or network proxies can connect simultaneously. Fingerprints are scoped to the full route, including intermediate jumps, and shared by SSH and SFTP on that route. When upgrading from address-only fingerprint storage, routed hosts require confirmation once more; direct connections retain their existing trust records. There is no need to delete the old fingerprint database.
+
 ## Installation
 
 See [CHANGELOG.md](CHANGELOG.md) for release changes.
