@@ -73,7 +73,8 @@ struct NativeRegressionTests {
                 let content = NSHostingView(rootView: RootView().environmentObject(model).environment(\.locale, language.locale))
                 content.frame = NSRect(x: 0, y: 0, width: 1100, height: 720)
                 content.layoutSubtreeIfNeeded()
-                precondition(content.fittingSize.width <= 1100, "\(language) / \(page) exceeded the window width")
+                let fittingWidth = content.fittingSize.width
+                precondition(fittingWidth <= 1100, "\(language) / \(page) exceeded the window width: \(fittingWidth)")
             }
             let browser = FileBrowserModel()
             browser.connect(model: model, host: Host(name: "fixture", address: "127.0.0.1", port: 1))

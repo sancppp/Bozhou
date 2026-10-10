@@ -28,6 +28,7 @@
 "Add jump host" = "添加跳板";
 "Add to or remove from comparison" = "加入或移出对比";
 "Address" = "地址";
+"After verifying a legitimate key change through a trusted channel, use the exact host identifier from the SSH warning in the command below." = "若服务器合法更换密钥，请先通过可信渠道核实新指纹，再将 SSH 警告中的完整主机标识填入下方命令。";
 "All Hosts" = "所有主机";
 "All Hosts/" = "所有主机/";
 "All Sessions" = "所有会话";
@@ -181,7 +182,7 @@
 "Host saved" = "主机已保存";
 "Hostname" = "主机名";
 "Hostname not yet collected" = "主机名待采集";
-"Host identifiers are stored as hashes and separated by connection route. After verifying a legitimate key change through a trusted channel, use the exact host identifier from the SSH warning in the command below." = "主机标识采用哈希保存，并按连接路径隔离。若服务器合法更换密钥，请先通过可信渠道核实新指纹，再将 SSH 警告中的完整主机标识填入下方命令。";
+"Host identifiers are stored as hashes and separated by connection route." = "主机标识采用哈希保存，并按连接路径隔离。";
 "Hosts" = "主机";
 "Hosts: {0}" = "{0} 台";
 "Icon color" = "图标颜色";

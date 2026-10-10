@@ -28,6 +28,7 @@
 "Add jump host" = "Add jump host";
 "Add to or remove from comparison" = "Add to or remove from comparison";
 "Address" = "Address";
+"After verifying a legitimate key change through a trusted channel, use the exact host identifier from the SSH warning in the command below." = "After verifying a legitimate key change through a trusted channel, use the exact host identifier from the SSH warning in the command below.";
 "All Hosts" = "All Hosts";
 "All Hosts/" = "All Hosts/";
 "All Sessions" = "All Sessions";
@@ -181,7 +182,7 @@
 "Host saved" = "Host saved";
 "Hostname" = "Hostname";
 "Hostname not yet collected" = "Hostname not yet collected";
-"Host identifiers are stored as hashes and separated by connection route. After verifying a legitimate key change through a trusted channel, use the exact host identifier from the SSH warning in the command below." = "Host identifiers are stored as hashes and separated by connection route. After verifying a legitimate key change through a trusted channel, use the exact host identifier from the SSH warning in the command below.";
+"Host identifiers are stored as hashes and separated by connection route." = "Host identifiers are stored as hashes and separated by connection route.";
 "Hosts" = "Hosts";
 "Hosts: {0}" = "Hosts: {0}";
 "Icon color" = "Icon color";
