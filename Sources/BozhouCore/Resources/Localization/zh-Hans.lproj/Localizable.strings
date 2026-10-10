@@ -435,7 +435,7 @@
 "Your Connection Credentials" = "你的连接凭据";
 "\nAn interrupted upload may leave a partial file with the same name. Check it before retrying." = "\n中断的上传可能留下同名部分文件，请检查后再重试。";
 "e.g. Production/US East" = "例如：生产环境/华北";
-"ssh-keygen -R 'host-identifier-from-warning' -f '{0}'" = "ssh-keygen -R '警告中的主机标识' -f '{0}'";
+"ssh-keygen -R 'host-identifier-from-warning' \\\n  -f '{0}'" = "ssh-keygen -R '警告中的主机标识' \\\n  -f '{0}'";
 "{0} · Exit {1}" = "{0} · 退出 {1}";
 "{0}: {1}\n→ {2}\nSize: {3}\nExisting files will not be overwritten." = "{0}：{1}\n→ {2}\n大小：{3}\n同名文件不会覆盖。";
 "{0}\nHostname: {1}\n{2}@{3}:{4}\n" = "{0}\n主机名：{1}\n{2}@{3}:{4}\n";

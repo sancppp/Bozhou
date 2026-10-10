@@ -435,7 +435,7 @@
 "Your Connection Credentials" = "Your Connection Credentials";
 "\nAn interrupted upload may leave a partial file with the same name. Check it before retrying." = "\nAn interrupted upload may leave a partial file with the same name. Check it before retrying.";
 "e.g. Production/US East" = "e.g. Production/US East";
-"ssh-keygen -R 'host-identifier-from-warning' -f '{0}'" = "ssh-keygen -R 'host-identifier-from-warning' -f '{0}'";
+"ssh-keygen -R 'host-identifier-from-warning' \\\n  -f '{0}'" = "ssh-keygen -R 'host-identifier-from-warning' \\\n  -f '{0}'";
 "{0} · Exit {1}" = "{0} · Exit {1}";
 "{0}: {1}\n→ {2}\nSize: {3}\nExisting files will not be overwritten." = "{0}: {1}\n→ {2}\nSize: {3}\nExisting files will not be overwritten.";
 "{0}\nHostname: {1}\n{2}@{3}:{4}\n" = "{0}\nHostname: {1}\n{2}@{3}:{4}\n";

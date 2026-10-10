@@ -296,7 +296,7 @@ struct KnownHostsPage: View {
                 Text(L10n.tr("Host identifiers are stored as hashes and separated by connection route."))
                 Text(L10n.tr("After verifying a legitimate key change through a trusted channel, use the exact host identifier from the SSH warning in the command below."))
             }.font(.caption).foregroundStyle(.secondary)
-            Text(L10n.tr("ssh-keygen -R 'host-identifier-from-warning' -f '\(model.paths.knownHosts.path)'"))
+            Text(L10n.tr("ssh-keygen -R 'host-identifier-from-warning' \\\n  -f '\(model.paths.knownHosts.path)'"))
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
             ScrollView([.vertical, .horizontal]) {
