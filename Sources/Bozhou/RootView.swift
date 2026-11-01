@@ -21,41 +21,19 @@ struct BrandMark: View {
 struct RootView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var contentWidth: CGFloat = 1100
+    @State private var renamingSession: TerminalSession?
+    private var verticalTabs: Bool { model.settings.tabPlacement == .vertical }
     var body: some View {
-        VStack(spacing: 0) {
-            if let session = model.active {
-                if let other = model.sessions.first(where: { $0.id == model.splitSession && $0.id != session.id }) {
-                    if model.splitVertical {
-                        VSplitView {
-                            TerminalPane(session: session).frame(minHeight: 180)
-                            TerminalPane(session: other).frame(minHeight: 180)
-                        }
-                    } else {
-                        HSplitView {
-                            TerminalPane(session: session).frame(minWidth: 440)
-                            TerminalPane(session: other).frame(minWidth: 440)
-                        }
-                    }
-                } else { TerminalPane(session: session) }
-            } else {
-                HStack(spacing: 0) {
-                    sidebar
-                    Divider()
-                    Group {
-                        switch model.page {
-                        case .hosts: HostsPage()
-                        case .identities: IdentitiesPage()
-                        case .snippets: SnippetsPage()
-                        case .pins: PinsPage()
-                        case .history: HistoryPage()
-                        case .knownHosts: KnownHostsPage()
-                        case .logs: LogsPage()
-                        case .settings: PreferencesView()
-                        }
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+        HStack(spacing: 0) {
+            if verticalTabs || model.active == nil {
+                sidebar
+                Divider()
             }
+            workspace
         }
+        .background(WindowWidthReader(width: $contentWidth))
+        .background(UpdatePresentation(updater: model.updater))
         .frame(minWidth: 940, minHeight: 580).background(canvas).tint(sea).preferredColorScheme(model.colorScheme)
         .toolbar { titlebar }
         .toolbarBackground(Color(nsColor: .windowBackgroundColor), for: .windowToolbar)
@@ -66,6 +44,7 @@ struct RootView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: model.sessions.count)
         .sheet(item: $model.editorHost) { HostEditor(host: $0).environmentObject(model) }
         .sheet(item: $model.sftpHost) { SFTPView(host: $0).environmentObject(model) }
+        .sheet(item: $renamingSession) { TabNameEditor(session: $0) }
         .alert(L10n.tr("Operation incomplete"), isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button(L10n.tr("OK"), role: .cancel) { model.error = nil }
         } message: { Text(model.error ?? "") }
@@ -78,6 +57,38 @@ struct RootView: View {
             }
         }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.toast)
     }
+    private var workspace: some View {
+        VStack(spacing: 0) {
+            if let session = model.active {
+                if let other = model.sessions.first(where: { $0.id == model.splitSession && $0.id != session.id }) {
+                    if model.splitVertical {
+                        VSplitView {
+                            TerminalPane(session: session).frame(minHeight: 180)
+                            TerminalPane(session: other).frame(minHeight: 180)
+                        }
+                    } else {
+                        HSplitView {
+                            TerminalPane(session: session).frame(minWidth: verticalTabs ? 320 : 440)
+                            TerminalPane(session: other).frame(minWidth: verticalTabs ? 320 : 440)
+                        }
+                    }
+                } else { TerminalPane(session: session) }
+            } else {
+                    Group {
+                        switch model.page {
+                        case .hosts: HostsPage()
+                        case .identities: IdentitiesPage()
+                        case .snippets: SnippetsPage()
+                        case .pins: PinsPage()
+                        case .history: HistoryPage()
+                        case .knownHosts: KnownHostsPage()
+                        case .logs: LogsPage()
+                        case .settings: PreferencesView()
+                        }
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
     @ToolbarContentBuilder
     private var titlebar: some ToolbarContent {
         ToolbarItem(id: "workspace", placement: .navigation) {
@@ -88,9 +99,10 @@ struct RootView: View {
                     .contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel(L10n.tr("Bozhou, return to workspace")).help(L10n.tr("Return to workspace"))
         }.flatToolbarItem()
-        ToolbarItemGroup(placement: .navigation) {
-            ForEach(model.sessions) { session in
-                sessionTab(session)
+        // Recreate the native item on resize: NSToolbar caches a hosting item's size limits.
+        ToolbarItem(id: "tabs-\(Int(contentWidth))", placement: .navigation) {
+            if !verticalTabs && !model.sessions.isEmpty {
+                HorizontalSessionTabs(width: max(160, contentWidth - 400), onRename: { renamingSession = $0 })
             }
         }.flatToolbarItem()
         if #available(macOS 26.0, *) {
@@ -102,7 +114,7 @@ struct RootView: View {
             if model.sessions.count > 2 {
                 Menu {
                     ForEach(model.sessions) { session in
-                        Button(session.displayName.full) { model.activeSession = session.id; model.splitSession = nil }
+                        SessionMenuButton(session: session) { model.activeSession = session.id; model.splitSession = nil }
                     }
                 } label: { Label(L10n.tr("All Sessions"), systemImage: "rectangle.stack").frame(height: 32) }
                     .menuStyle(.borderlessButton).help(L10n.tr("Switch session"))
@@ -116,7 +128,7 @@ struct RootView: View {
                             Button(L10n.tr("New Local Terminal")) { split(vertical: vertical) { model.localTerminal() } }
                             if let host = active.host { Button(L10n.tr("New Connection to This Host")) { split(vertical: vertical) { model.connect(host) } } }
                             ForEach(model.sessions.filter { $0.id != active.id }) { other in
-                                Button(other.displayName.full) { model.splitVertical = vertical; model.splitSession = other.id }
+                                SessionMenuButton(session: other) { model.splitVertical = vertical; model.splitSession = other.id }
                             }
                         }
                     }
@@ -125,6 +137,17 @@ struct RootView: View {
                     .menuStyle(.borderlessButton).fixedSize()
             }
         }.flatToolbarItem()
+        ToolbarItem(id: "tab-layout", placement: .primaryAction) {
+            Menu {
+                Picker(L10n.tr("Tab Bar"), selection: Binding(get: { model.settings.tabPlacement }, set: { model.setTabPlacement($0) })) {
+                    ForEach(SessionTabPlacement.allCases) { Text($0.title).tag($0) }
+                }
+                if let session = model.active {
+                    Button(L10n.tr("Rename Tab…")) { renamingSession = session }
+                }
+            } label: { Image(systemName: verticalTabs ? "sidebar.left" : "rectangle.topthird.inset.filled").frame(width: 26, height: 32) }
+                .menuStyle(.borderlessButton).fixedSize().help(L10n.tr("Tab Bar"))
+        }.flatToolbarItem()
         ToolbarItem(id: "new", placement: .primaryAction) {
             Menu {
                 Button(L10n.tr("New Host")) { model.editorHost = Host() }
@@ -132,21 +155,6 @@ struct RootView: View {
             } label: { Image(systemName: "plus").frame(width: 26, height: 32).contentShape(Rectangle()) }
                 .menuStyle(.borderlessButton).fixedSize().help(L10n.tr("New"))
         }.flatToolbarItem()
-    }
-    private func sessionTab(_ session: TerminalSession) -> some View {
-        HStack(spacing: 0) {
-            Button { model.activeSession = session.id; model.splitSession = nil } label: {
-                HStack(spacing: 4) { Image(systemName: "terminal"); HostNameLabel(session.displayName) }
-                    .frame(minWidth: 72, maxWidth: 240).padding(.horizontal, 8).frame(height: 32).contentShape(Rectangle())
-            }.buttonStyle(.plain).help(session.displayName.full)
-            Button { model.closeSession(session.id) } label: {
-                Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
-                    .frame(width: 22, height: 32).contentShape(Rectangle())
-            }.buttonStyle(.plain).help(L10n.tr("Close \(session.title)"))
-        }
-        .font(.system(size: 12))
-        .background(model.activeSession == session.id || model.splitSession == session.id ? Color.primary.opacity(0.10) : .clear,
-                    in: RoundedRectangle(cornerRadius: 8))
     }
     private func split(vertical: Bool, create: () -> Void) {
         let original = model.activeSession
@@ -158,23 +166,39 @@ struct RootView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(L10n.tr("Workspace")).font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary).padding(10)
-            ForEach(Page.allCases) { page in
-                if page == .settings { Spacer() }
-                Button { model.page = page } label: {
+            ForEach(Page.allCases.filter { $0 != .settings }) { page in
+                pageButton(page)
+            }
+            if verticalTabs && !model.sessions.isEmpty {
+                Divider().padding(.vertical, 6)
+                Text(L10n.tr("Sessions")).font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary).padding(.horizontal, 10)
+                ScrollViewReader { reader in
+                    ScrollView {
+                        LazyVStack(spacing: 3) {
+                            ForEach(model.sessions) { session in
+                                SessionTab(session: session, onRename: { renamingSession = $0 }).id(session.id)
+                            }
+                        }
+                    }.onChange(of: model.activeSession) { _, id in if let id { reader.scrollTo(id) } }
+                }
+            } else { Spacer() }
+            pageButton(.settings)
+        }.padding(8).frame(width: verticalTabs ? 220 : 175).background(Color(nsColor: .windowBackgroundColor))
+    }
+    private func pageButton(_ page: Page) -> some View {
+                Button { model.activeSession = nil; model.splitSession = nil; model.page = page } label: {
                     HStack(spacing: 12) {
                         Image(systemName: page.symbol).font(.system(size: 15, weight: .medium)).frame(width: 20)
-                        Text(page.title).font(.system(size: 13, weight: model.page == page ? .semibold : .regular))
+                        Text(page.title).font(.system(size: 13, weight: model.activeSession == nil && model.page == page ? .semibold : .regular))
                         Spacer()
                         if page == .hosts { Text("\(model.hosts.count)").font(.system(size: 11)).foregroundStyle(.secondary) }
                         if page == .pins && !model.pins.isEmpty { Text("\(model.pins.count)").font(.system(size: 11)).foregroundStyle(.secondary) }
                     }.padding(.horizontal, 10).padding(.vertical, 8)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .foregroundStyle(model.page == page ? sea : Color.primary.opacity(0.75))
-                        .background(model.page == page ? sea.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 9))
+                        .foregroundStyle(model.activeSession == nil && model.page == page ? sea : Color.primary.opacity(0.75))
+                        .background(model.activeSession == nil && model.page == page ? sea.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 9))
                         .contentShape(Rectangle())
                 }.buttonStyle(.plain)
-            }
-        }.padding(8).frame(width: 175).background(Color(nsColor: .windowBackgroundColor))
     }
 }
 

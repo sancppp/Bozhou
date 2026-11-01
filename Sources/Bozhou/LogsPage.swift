@@ -30,7 +30,7 @@ struct LogsPage: View {
                 Button(L10n.tr("Refresh")) { revision += 1 }
             }
             HStack {
-                TextField(L10n.tr("Search log messages or categories"), text: $search).textFieldStyle(.roundedBorder)
+                SearchField(title: L10n.tr("Search log messages or categories"), text: $search)
                 Picker(L10n.tr("Level"), selection: $level) {
                     Text(L10n.tr("All levels")).tag(Optional<LogLevel>.none)
                     ForEach(LogLevel.allCases) { Text($0.title).tag(Optional($0)) }
@@ -46,23 +46,23 @@ struct LogsPage: View {
                 TableColumn(L10n.tr("Level")) { entry in
                     Text(entry.level.title).foregroundStyle(entry.level == .error ? .red : entry.level == .warning ? .orange : .secondary)
                 }.width(55)
-                TableColumn(L10n.tr("Category"), value: \.category).width(65)
-                TableColumn(L10n.tr("Message"), value: \.message)
+                TableColumn(L10n.tr("Category")) { HighlightedText($0.category, query: search) }.width(65)
+                TableColumn(L10n.tr("Message")) { HighlightedText($0.message, query: search) }
             }
             .overlay {
                 if filtered.isEmpty { Text(search.isEmpty ? L10n.tr("No logs match these filters") : L10n.tr("No matching logs")).foregroundStyle(.secondary) }
             }
-            if let entry = entries.first(where: { $0.id == selected }) {
+            if let entry = filtered.first(where: { $0.id == selected }) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(entry.date, format: .dateTime).font(.caption).foregroundStyle(.secondary)
-                    ScrollView {
-                        Text(entry.message).font(.system(size: 12, design: .monospaced))
-                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading)
-                    }.frame(maxHeight: 120)
+                    SearchableText(text: entry.message, query: search).frame(height: 120).id(entry.id)
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(.background, in: RoundedRectangle(cornerRadius: 8))
             }
             Text(L10n.tr("Records: \(filtered.count) / \(entries.count) · Newest first")).font(.caption).foregroundStyle(.secondary)
         }.padding(28)
+            .onChange(of: search) { _, _ in
+                if !filtered.contains(where: { $0.id == selected }) { selected = filtered.first?.id }
+            }
             .task(id: revision) { await load() }
             .task(id: autoRefresh) {
                 guard autoRefresh else { return }

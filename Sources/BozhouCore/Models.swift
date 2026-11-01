@@ -139,12 +139,32 @@ public struct Identity: Record, Equatable {
     public static let table = "identities"
     public var id = UUID()
     public var name: String
+    public var group: String
     public var privateKeyPath: String
     public var publicKey: String
     public var fingerprint: String
-    public init(name: String, privateKeyPath: String, publicKey: String = "", fingerprint: String = "") {
+    public init(name: String, privateKeyPath: String, publicKey: String = "", fingerprint: String = "", group: String = "") {
         self.name = name; self.privateKeyPath = privateKeyPath; self.publicKey = publicKey; self.fingerprint = fingerprint
+        self.group = group
     }
+    private enum CodingKeys: String, CodingKey { case id, name, group, privateKeyPath, publicKey, fingerprint }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        group = try c.decodeIfPresent(String.self, forKey: .group) ?? ""
+        privateKeyPath = try c.decode(String.self, forKey: .privateKeyPath)
+        publicKey = try c.decode(String.self, forKey: .publicKey)
+        fingerprint = try c.decode(String.self, forKey: .fingerprint)
+    }
+}
+
+public struct IdentityFolder: Record, Equatable {
+    public static let table = "identity_folders"
+    public var id = UUID()
+    public var path: String
+    public var createdAt = Date()
+    public init(path: String) { self.path = path }
 }
 
 public struct Snippet: Record, Equatable {
@@ -202,11 +222,13 @@ public struct AppSettings: Codable, Equatable {
     public var notifications: Bool = false
     public var historyLimit: Int = 1000
     public var expandedHostGroups: Set<String> = []
+    public var expandedIdentityGroups: Set<String> = []
+    public var tabPlacement: SessionTabPlacement = .horizontal
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
         case fontName, fontSize, appearance, terminalBackgroundHex, autoReconnect, saveHistory, notifications, historyLimit
-        case expandedHostGroups, language
+        case expandedHostGroups, expandedIdentityGroups, tabPlacement, language
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -220,6 +242,16 @@ public struct AppSettings: Codable, Equatable {
         notifications = try values.decodeIfPresent(Bool.self, forKey: .notifications) ?? false
         historyLimit = min(3000, max(0, try values.decodeIfPresent(Int.self, forKey: .historyLimit) ?? 1000))
         expandedHostGroups = try values.decodeIfPresent(Set<String>.self, forKey: .expandedHostGroups) ?? []
+        expandedIdentityGroups = try values.decodeIfPresent(Set<String>.self, forKey: .expandedIdentityGroups) ?? []
+        tabPlacement = SessionTabPlacement(rawValue: try values.decodeIfPresent(String.self, forKey: .tabPlacement) ?? "") ?? .horizontal
+    }
+}
+
+public enum SessionTabPlacement: String, Codable, CaseIterable, Identifiable {
+    case horizontal, vertical
+    public var id: String { rawValue }
+    public var title: String {
+        self == .horizontal ? L10n.tr("Horizontal Tabs") : L10n.tr("Vertical Tabs")
     }
 }
 

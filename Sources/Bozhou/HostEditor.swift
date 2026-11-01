@@ -48,7 +48,7 @@ struct HostEditor: View {
                     if host.authentication == .identity {
                         Picker(L10n.tr("Private Key"), selection: $host.identityID) {
                             Text(L10n.tr("Select")).tag(nil as UUID?)
-                            ForEach(model.identities) { key in Text(key.name).tag(Optional(key.id)) }
+                            ForEach(model.identities) { key in Text(key.group.isEmpty ? key.name : key.group + "/" + key.name).tag(Optional(key.id)) }
                         }
                         Text(L10n.tr("The matching private key file is required. Import it in Keys first, or use SSH Agent.")).font(.caption).foregroundStyle(.secondary)
                     } else if host.authentication == .kerberos {

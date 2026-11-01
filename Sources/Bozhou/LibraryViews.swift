@@ -7,32 +7,45 @@ struct IdentitiesPage: View {
     @State private var selected: Identity?
     @State private var deleting: Identity?
     @State private var importing = false
+    @State private var search = ""
+    @State private var editing: Identity?
+    @State private var folderPrompt = false
+    @State private var folderPath = ""
+    @State private var renaming: String?
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 PageHeader(title: L10n.tr("Keys"), detail: L10n.tr("Organize your keys. Private keys stay in the locations you choose."))
+                Button { newFolder(in: model.selectedIdentityGroup) } label: { Image(systemName: "folder.badge.plus") }.help(L10n.tr("New Folder"))
                 Button { importKey() } label: { Label(L10n.tr("Import Key"), systemImage: "plus") }.buttonStyle(.borderedProminent).disabled(importing)
             }
-            if model.identities.isEmpty {
+            SearchField(title: L10n.tr("Search keys, folders, paths or fingerprints"), text: $search)
+            HStack(spacing: 6) {
+                Button(L10n.tr("All Keys")) { model.selectedIdentityGroup = "" }.buttonStyle(.link)
+                ForEach(HostTree.ancestors(model.selectedIdentityGroup), id: \.self) { path in
+                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                    Button((path as NSString).lastPathComponent) { model.selectedIdentityGroup = path }.buttonStyle(.link)
+                }
+            }.font(.caption)
+            if model.identities.isEmpty && model.identityFolders.isEmpty {
                 EmptyState(symbol: "key.horizontal", title: L10n.tr("Your Connection Credentials"), detail: L10n.tr("Import a private key, or select a public key to match its private key in the same directory.")) {
                     Button(L10n.tr("Choose Key File")) { importKey() }.disabled(importing)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(model.identities) { key in
-                    HStack(spacing: 16) {
-                        Image(systemName: "key.fill").foregroundStyle(sea).font(.title2).frame(width: 36)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(key.name).font(.headline)
-                            Text(key.privateKeyPath.isEmpty ? L10n.tr("Public key only · Authenticate with SSH Agent or the associated local private key") : key.privateKeyPath).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
-                            if !key.fingerprint.isEmpty { Text(key.fingerprint).font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary) }
-                        }
-                        Spacer()
-                        Button(L10n.tr("Public Key")) { selected = key }
-                        Button { deleting = key } label: { Image(systemName: "trash") }.help(L10n.tr("Remove key record"))
-                    }.padding(.vertical, 12)
-                }.scrollContentBackground(.hidden)
+                IdentityTreeView(search: search, onPublicKey: { selected = $0 }, onEdit: { editing = $0 },
+                                 onDelete: { deleting = $0 }, onNewFolder: newFolder,
+                                 onRenameFolder: { renaming = $0; folderPath = $0; folderPrompt = true })
             }
         }.padding(28)
+        .sheet(item: $editing) { IdentityEditor(key: $0).environmentObject(model) }
+        .alert(renaming == nil ? L10n.tr("New Folder") : L10n.tr("Rename or Move Folder"), isPresented: $folderPrompt) {
+            TextField(L10n.tr("Full path, e.g. Production/US East"), text: $folderPath)
+            Button(L10n.tr("Cancel"), role: .cancel) {}
+            Button(L10n.tr("Save")) {
+                if let renaming { model.renameIdentityFolder(renaming, to: folderPath) }
+                else { model.createIdentityFolder(folderPath) }
+            }
+        }
         .sheet(item: $selected) { key in
             VStack(alignment: .leading, spacing: 18) {
                 Text(key.name).font(.title2)
@@ -56,12 +69,16 @@ struct IdentitiesPage: View {
             }
         } message: { Text(L10n.tr("Only the app record will be removed. The key file will remain.")) }
     }
+    private func newFolder(in parent: String) {
+        renaming = nil; folderPath = parent.isEmpty ? "" : parent + "/"; folderPrompt = true
+    }
     private func importKey() {
         let panel = NSOpenPanel(); panel.title = L10n.tr("Choose an SSH Private or Public Key"); panel.message = L10n.tr("You can import just a public key. If its private key exists in the same directory, its path will be saved."); panel.prompt = L10n.tr("Import")
         panel.canChooseDirectories = false; panel.allowsMultipleSelection = false; panel.showsHiddenFiles = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let candidate = url.path.hasSuffix(".pub") ? String(url.path.dropLast(4)) : url.path
         let privatePath = FileManager.default.isReadableFile(atPath: candidate) ? candidate : ""
+        let group = model.selectedIdentityGroup
         importing = true
         Task {
             let key = await Task.detached {
@@ -75,12 +92,12 @@ struct IdentitiesPage: View {
                     fingerprint = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
                     process.waitUntilExit()
                 }
-                return Identity(name: URL(fileURLWithPath: candidate).lastPathComponent, privateKeyPath: privatePath, publicKey: pub, fingerprint: fingerprint)
+                return Identity(name: URL(fileURLWithPath: candidate).lastPathComponent, privateKeyPath: privatePath, publicKey: pub, fingerprint: fingerprint, group: group)
             }.value
             model.perform {
                 guard !key.fingerprint.isEmpty else { throw BozhouError.invalid(L10n.tr("Could not recognize the SSH key. Check the selected file.")) }
                 if model.identities.contains(where: { $0.fingerprint == key.fingerprint }) { model.notify(L10n.tr("This key has already been imported")); return }
-                try model.store.save(key); try model.reload(); model.notify(L10n.tr("Key imported"))
+                try model.saveIdentity(key); model.notify(L10n.tr("Key imported"))
             }
             importing = false
         }
@@ -91,12 +108,14 @@ struct SnippetsPage: View {
     @EnvironmentObject var model: AppModel
     @State private var editing: Snippet?
     @State private var deleting: Snippet?
+    @State private var search = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack {
                 PageHeader(title: L10n.tr("Snippets"), detail: L10n.tr("Save common commands and insert them into a terminal. Review before running."))
                 Button { editing = Snippet() } label: { Label(L10n.tr("New Snippet"), systemImage: "plus") }.buttonStyle(.borderedProminent)
             }
+            SearchField(title: L10n.tr("Search snippets"), text: $search)
             if model.snippets.isEmpty {
                 EmptyState(symbol: "curlybraces", title: L10n.tr("Less Repeated Typing"), detail: L10n.tr("Save deployment checks, log queries and system diagnostics as reusable snippets.")) {
                     Button(L10n.tr("New Snippet")) { editing = Snippet() }
@@ -104,16 +123,18 @@ struct SnippetsPage: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 14) {
-                        ForEach(model.snippets) { snippet in
+                        ForEach(model.snippets.filter { snippet in
+                            [snippet.name, snippet.command, snippet.detail].contains { TextSearch.contains($0, query: search) }
+                        }) { snippet in
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack {
-                                    Text(snippet.name).font(.headline)
+                                    HighlightedText(snippet.name, query: search).font(.headline)
                                     Spacer()
                                     Button(L10n.tr("Edit")) { editing = snippet }
                                     Button { deleting = snippet } label: { Image(systemName: "trash") }
                                 }
-                                Text(snippet.command).font(.system(size: 13, design: .monospaced)).textSelection(.enabled)
-                                if !snippet.detail.isEmpty { Text(snippet.detail).font(.caption).foregroundStyle(.secondary) }
+                                HighlightedText(snippet.command, query: search).font(.system(size: 13, design: .monospaced)).textSelection(.enabled)
+                                if !snippet.detail.isEmpty { HighlightedText(snippet.detail, query: search).font(.caption).foregroundStyle(.secondary) }
                                 if !model.sessions.filter({ !$0.ended }).isEmpty {
                                     Menu(L10n.tr("Insert into Terminal")) {
                                         ForEach(model.sessions.filter { !$0.ended }) { session in
@@ -160,20 +181,15 @@ struct SnippetEditor: View {
 struct InteractionDetail: View {
     @EnvironmentObject var model: AppModel
     let item: Interaction
+    var search = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack { HostNameLabel(model.displayName(for: item)).font(.headline); Spacer(); Text(item.date, format: .dateTime).font(.caption).foregroundStyle(.secondary) }
-            HStack { Text(item.shell); Spacer(); Text(item.exitCode.map { L10n.tr("Exit status \($0)") } ?? L10n.tr("Incomplete / Manual snapshot")) }
+            HStack { HostNameLabel(model.displayName(for: item), query: search).font(.headline); Spacer(); Text(item.date, format: .dateTime).font(.caption).foregroundStyle(.secondary) }
+            HStack { HighlightedText(item.shell, query: search); Spacer(); Text(item.exitCode.map { L10n.tr("Exit status \($0)") } ?? L10n.tr("Incomplete / Manual snapshot")) }
                 .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
-            Text(item.command).font(.system(size: 13, weight: .semibold, design: .monospaced)).textSelection(.enabled)
+            HighlightedText(item.command, query: search).font(.system(size: 13, weight: .semibold, design: .monospaced)).textSelection(.enabled)
             Divider()
-            GeometryReader { geometry in
-                ScrollView([.vertical, .horizontal]) {
-                    Text(item.output.isEmpty ? L10n.tr("(No output)") : item.output).font(.system(size: 12, design: .monospaced))
-                        .textSelection(.enabled).fixedSize(horizontal: true, vertical: true)
-                        .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
-                }
-            }
+            SearchableText(text: item.output.isEmpty ? L10n.tr("(No output)") : item.output, query: search).id(item.id)
             if item.truncated { Text(L10n.tr("Output exceeded 256 KiB and was truncated")).font(.caption).foregroundStyle(.orange) }
         }.padding(22).background(.background, in: RoundedRectangle(cornerRadius: 14))
     }
@@ -184,21 +200,28 @@ struct PinsPage: View {
     @State private var selection: Set<UUID> = []
     @State private var deleting: Pin?
     @State private var search = ""
+    @StateObject private var results = InteractionSearch()
+    private var filtered: [Pin] {
+        search.isEmpty ? model.pins : model.pins.filter { results.ids.contains($0.id) }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             PageHeader(title: L10n.tr("Pins"), detail: L10n.tr("Save useful interactions. Select two to compare commands and output side by side."))
+            SearchField(title: L10n.tr("Search titles, commands, hosts or output"), text: $search)
             if model.pins.isEmpty {
                 EmptyState(symbol: "pin", title: L10n.tr("Keep What Matters"), detail: L10n.tr("Click a pin in the terminal sidebar to save the timestamp, command and output.")) { EmptyView() }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 HSplitView {
                     VStack {
-                        TextField(L10n.tr("Search pins"), text: $search).textFieldStyle(.roundedBorder)
-                        List(model.pins.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || model.displayName(for: $0.interaction).full.localizedCaseInsensitiveContains(search) }, selection: $selection) { pin in
+                        List(filtered, selection: $selection) { pin in
                             HStack {
                                 VStack(alignment: .leading, spacing: 5) {
-                                    Text(pin.title).font(.system(size: 12, weight: .medium)).lineLimit(2)
-                                    HostNameLabel(model.displayName(for: pin.interaction)).font(.caption2).foregroundStyle(.secondary)
+                                    HighlightedText(pin.title, query: search).font(.system(size: 12, weight: .medium)).lineLimit(2)
+                                    HostNameLabel(model.displayName(for: pin.interaction), query: search).font(.caption2).foregroundStyle(.secondary)
+                                    if !search.isEmpty, let excerpt = results.excerpts[pin.id] {
+                                        HighlightedText(excerpt, query: search).font(.caption2).lineLimit(3)
+                                    }
                                     Text(L10n.date(pin.interaction.date, abbreviated: true)).font(.caption2).foregroundStyle(.secondary)
                                 }
                                 Spacer(minLength: 4)
@@ -216,17 +239,23 @@ struct PinsPage: View {
                         Text(L10n.tr("Select two items, or ⌘-click to compare")).font(.caption).foregroundStyle(.secondary)
                     }.frame(minWidth: 190, idealWidth: 220, maxWidth: 270)
                     HStack(spacing: 12) {
-                        let chosen = Array(model.pins.filter { selection.contains($0.id) }.prefix(2))
+                        let chosen = Array(filtered.filter { selection.contains($0.id) }.prefix(2))
                         if chosen.isEmpty { Text(L10n.tr("Select a pin to see details")).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity) }
                         if chosen.count == 2 {
-                            OutputComparisonView(before: chosen[1].interaction, after: chosen[0].interaction)
+                            OutputComparisonView(before: chosen[1].interaction, after: chosen[0].interaction, search: search)
                         } else if let pin = chosen.first {
-                            InteractionDetail(item: pin.interaction).frame(minWidth: 200)
+                            InteractionDetail(item: pin.interaction, search: search).frame(minWidth: 200)
                         }
                     }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(.leading, 12)
                 }
             }
         }.padding(28)
+        .task(id: InteractionSearch.Key(query: search, revision: model.libraryRevision)) {
+            await results.update(model.pins.map { .init(id: $0.id, item: $0.interaction, name: model.displayName(for: $0.interaction), title: $0.title) }, query: search)
+            guard !Task.isCancelled else { return }
+            selection.formIntersection(Set(filtered.map(\.id)))
+            if selection.isEmpty, let first = filtered.first { selection = [first.id] }
+        }
         .alert(L10n.tr("Delete This Pin?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button(L10n.tr("Cancel"), role: .cancel) {}
             Button(L10n.tr("Delete"), role: .destructive) {
@@ -251,31 +280,43 @@ struct HistoryPage: View {
     @State private var selection: UUID?
     @State private var search = ""
     @State private var confirmClear = false
+    @StateObject private var results = InteractionSearch()
+    private var filtered: [Interaction] {
+        search.isEmpty ? model.history : model.history.filter { results.ids.contains($0.id) }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack {
                 PageHeader(title: L10n.tr("History"), detail: L10n.tr("Records executed commands, keeping up to \(model.settings.historyLimit) entries."))
                 Button(L10n.tr("Clear History")) { confirmClear = true }.disabled(model.history.isEmpty)
             }
+            SearchField(title: L10n.tr("Search commands, hosts or output"), text: $search)
             if model.history.isEmpty {
                 EmptyState(symbol: "clock.arrow.circlepath", title: L10n.tr("A Record of Every Step"), detail: L10n.tr("History appears here after you connect and run commands. Disable saving in Settings.")) { EmptyView() }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                TextField(L10n.tr("Search commands or hosts"), text: $search).textFieldStyle(.roundedBorder)
                 HSplitView {
-                    List(model.history.filter { search.isEmpty || $0.command.localizedCaseInsensitiveContains(search) || model.displayName(for: $0).full.localizedCaseInsensitiveContains(search) }, selection: $selection) { item in
+                    List(filtered, selection: $selection) { item in
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(item.command).font(.system(size: 12, design: .monospaced)).lineLimit(2)
-                            HostNameLabel(model.displayName(for: item)).font(.caption2).foregroundStyle(.secondary)
+                            HighlightedText(item.command, query: search).font(.system(size: 12, design: .monospaced)).lineLimit(2)
+                            HostNameLabel(model.displayName(for: item), query: search).font(.caption2).foregroundStyle(.secondary)
+                            if !search.isEmpty, let excerpt = results.excerpts[item.id] {
+                                HighlightedText(excerpt, query: search).font(.caption2).lineLimit(3)
+                            }
                             Text(L10n.date(item.date, abbreviated: true)).font(.caption2).foregroundStyle(.secondary)
                         }.padding(.vertical, 5).tag(item.id).contextMenu { Button(L10n.tr("Pin Interaction")) { model.pin(item) } }
                     }.frame(minWidth: 220, idealWidth: 280, maxWidth: 350).scrollContentBackground(.hidden)
-                    if let item = model.history.first(where: { $0.id == selection }) {
-                        VStack { InteractionDetail(item: item); Button(L10n.tr("Pin This Interaction")) { model.pin(item) } }.padding(.leading, 16)
+                    if let item = filtered.first(where: { $0.id == selection }) {
+                        VStack { InteractionDetail(item: item, search: search); Button(L10n.tr("Pin This Interaction")) { model.pin(item) } }.padding(.leading, 16)
                     } else { Text(L10n.tr("Select a command to see its full output")).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity) }
                 }
             }
         }.padding(28)
+            .task(id: InteractionSearch.Key(query: search, revision: model.libraryRevision)) {
+                await results.update(model.history.map { .init(id: $0.id, item: $0, name: model.displayName(for: $0)) }, query: search)
+                guard !Task.isCancelled else { return }
+                if !filtered.contains(where: { $0.id == selection }) { selection = filtered.first?.id }
+            }
             .alert(L10n.tr("Clear All Command History?"), isPresented: $confirmClear) {
                 Button(L10n.tr("Cancel"), role: .cancel) {}
                 Button(L10n.tr("Clear"), role: .destructive) { model.perform { try model.store.clearHistory(); try model.reload() } }
@@ -286,12 +327,14 @@ struct HistoryPage: View {
 struct KnownHostsPage: View {
     @EnvironmentObject var model: AppModel
     @State private var content = ""
+    @State private var search = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack {
                 PageHeader(title: L10n.tr("Known Hosts"), detail: L10n.tr("Fingerprints are saved after confirmation on first connection. Changed fingerprints block connections."))
                 Button(L10n.tr("Refresh")) { load() }
             }
+            SearchField(title: L10n.tr("Search known hosts"), text: $search)
             VStack(alignment: .leading, spacing: 4) {
                 Text(L10n.tr("Host identifiers are stored as hashes and separated by connection route."))
                 Text(L10n.tr("After verifying a legitimate key change through a trusted channel, use the exact host identifier from the SSH warning in the command below."))
@@ -299,10 +342,8 @@ struct KnownHostsPage: View {
             Text(L10n.tr("ssh-keygen -R 'host-identifier-from-warning' \\\n  -f '\(model.paths.knownHosts.path)'"))
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
-            ScrollView([.vertical, .horizontal]) {
-                Text(content.isEmpty ? L10n.tr("No trusted hosts yet") : content).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(20).background(.background, in: RoundedRectangle(cornerRadius: 14))
+            SearchableText(text: content.isEmpty ? L10n.tr("No trusted hosts yet") : content, query: search, fontSize: 11)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).padding(20).background(.background, in: RoundedRectangle(cornerRadius: 14))
         }.padding(28).onAppear { load() }
     }
     private func load() { model.perform { content = try String(contentsOf: model.paths.knownHosts, encoding: .utf8) } }
@@ -335,10 +376,13 @@ struct PreferencesView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section(L10n.tr("Appearance & Terminal")) {
+                    Picker(L10n.tr("Tab Bar"), selection: $model.settings.tabPlacement) {
+                        ForEach(SessionTabPlacement.allCases) { Text($0.title).tag($0) }
+                    }
                     Picker(L10n.tr("Appearance"), selection: $model.settings.appearance) {
                         Text(L10n.tr("System")).tag("system"); Text(L10n.tr("Light")).tag("light"); Text(L10n.tr("Dark")).tag("dark")
                     }
-                    TextField(L10n.tr("Search system fonts"), text: $fontSearch)
+                    SearchField(title: L10n.tr("Search system fonts"), text: $fontSearch)
                     Picker(L10n.tr("Terminal font"), selection: $model.settings.fontName) {
                         ForEach(TerminalAppearance.fonts.filter { fontSearch.isEmpty || $0.localizedCaseInsensitiveContains(fontSearch) || $0 == model.settings.fontName }, id: \.self) { Text($0).tag($0) }
                     }
@@ -378,6 +422,7 @@ struct PreferencesView: View {
                     Toggle(L10n.tr("Send a system notification when a connection ends"), isOn: $model.settings.notifications)
                 }
                 Section(L10n.tr("Local Data")) {
+                    WorkspaceBackupView()
                     Text(model.paths.root.path).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                     Button(L10n.tr("Open in Finder")) { NSWorkspace.shared.open(model.paths.root) }
                     Button(L10n.tr("Change Data Location…")) {
@@ -387,9 +432,15 @@ struct PreferencesView: View {
                     }
                     Text(L10n.tr("The database contains host passwords in plain text. Host fingerprints and logs are also stored here. Private keys stay in their original locations.")).font(.caption).foregroundStyle(.secondary)
                 }
+                Section(L10n.tr("Software Update")) {
+                    UpdateSettingsView(updater: model.updater)
+                }
                 Section(L10n.tr("About Bozhou")) {
                     HStack(spacing: 16) { BrandMark(size: 46); VStack(alignment: .leading, spacing: 5) {
                         Text(L10n.tr("Bozhou  \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? L10n.tr("Development build"))")).font(.headline)
+                        if let preview = Bundle.main.object(forInfoDictionaryKey: "BozhouPreviewBuild") as? String {
+                            Text(L10n.tr("Local Preview · \(preview)")).font(.caption).foregroundStyle(sea)
+                        }
                         Text("SwiftUI · OpenSSH · SwiftTerm · SQLite").font(.caption).foregroundStyle(.secondary)
                     } }
                     Text(L10n.tr("A home for every connection.")).font(.caption).foregroundStyle(.secondary)

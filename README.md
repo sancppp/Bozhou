@@ -21,6 +21,7 @@
 ## Features
 
 - **Organize hosts:** nested folders, tags, favorites, search and sorting. Custom names are stored separately from the hostname, OS, kernel, CPU and memory collected at login.
+- **Organize keys:** independent nested folders, rename and move operations, and saved expansion state. Moving a key preserves host references and its original file location.
 - **Build connection chains:** passwords, private keys, SSH Agent and Kerberos, with up to 12 jump hosts. Each hop keeps its own username, port and authentication method.
 - **Connect across networks:** SOCKS5, HTTP CONNECT and local port forwarding. Confirm each host fingerprint on first connection; changed fingerprints block connections.
 - **Work in parallel:** tabs, horizontal and vertical splits, local Zsh, automatic reconnection, raw SSH logs and native input method support.
@@ -75,6 +76,16 @@ Snippets insert text into the terminal; review it before executing. Automatic re
 
 Switching tabs, returning to the workspace or changing split layouts retains existing sessions and scrollback. Background output continues to arrive. Scrollback has a capacity limit; clearing the screen, closing a session or reconnecting clears or replaces terminal content.
 
+Right-click a tab to give that session a custom name or restore its default name. Horizontal tabs shrink as sessions are added, preserving the last six hostname characters; when they reach their minimum width, scroll horizontally or use **All Sessions**. Choose **Vertical Tabs** from the toolbar's **Tab Bar** menu or Settings to show sessions below the workspace navigation. The layout preference is saved per workspace.
+
+Use **⌘F** in History, Pins, Keys, Snippets, Known Hosts and Logs to focus the current search field. History and Pins search commands, hosts and saved output, show matching excerpts and highlight hits in the detail view. Log and output viewers offer previous/next match navigation. SSH log searches cover the displayed tail (up to 256 KiB).
+
+Search starts **one second after you stop typing**. History, pin output and large text matching run in the background; clearing with the clear button or Esc applies immediately.
+
+In **Settings → Local Data**, export a `.bozhoubackup` file or import one to a new folder. The backup includes hosts, folders, key records, snippets, history, pins, settings, known hosts and logs. It contains saved passwords and is **not encrypted**; private key files and temporary sessions are excluded. Close terminal and SFTP sessions before restoring. Restoration switches the workspace and retains the previous directory. Backups are limited to 512 MiB.
+
+Bozhou checks the public GitHub release at each launch. Use **Bozhou → Check for Updates…** or **Settings → Software Update** to check manually, download and install a newer Apple Silicon release. Downloads are verified against `SHA256SUMS`, the archive structure, bundle identity, version and code signature. Installation closes connections, restarts the app and retains the previous app beside it; replacement or launch failures restore it. The installation folder must be writable. Checksums and ad-hoc signatures do not replace Apple Developer ID signing or notarization.
+
 Select a host in the list or grid and press **Space** for Quick Look. Use **↑↓** to switch hosts and **Space / Esc** to close it. Host labels display `name(hostname)`, abbreviating long hostnames to their last six characters when needed. Hover for the full name. Before the first login, the connection address serves as the hostname.
 
 The terminal header shows host identity, connection address, username, folder and status. **⌘− / ⌘=** changes the focused pane's font size from 10 to 36 pt. Zoom lasts for the session; the size in Settings is the default for new sessions. A shell exiting with status 0 closes its tab or pane. Nonzero or unknown exits keep the terminal available for inspection and manual reconnection.
@@ -122,6 +133,7 @@ Pin a baseline and a canary check, then select both to compare output. Version, 
 | --- | --- |
 | `⌘N` / `⌘T` | New host / local terminal |
 | `⌘⇧F` | Search hosts |
+| `⌘F` | Search the current library or log page |
 | `⌘⇧R` / `⌘⇧W` | Reconnect / close current session |
 | `⌘⇧P` | Pin latest interaction |
 | `⌘K` | Clear screen and scrollback, retaining recorded interactions |

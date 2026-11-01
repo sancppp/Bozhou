@@ -4,13 +4,15 @@ import BozhouCore
 struct RawLogContent: View {
     let url: URL
     @State private var content = ""
+    @State private var search = ""
     var body: some View {
-        ScrollView([.horizontal, .vertical]) {
-            Text(content.isEmpty ? L10n.tr("Waiting for log content…") : content)
-                .font(.system(size: 11, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: true, vertical: true)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(16)
-        }.background(.background)
+        VStack(spacing: 8) {
+            SearchField(title: L10n.tr("Search this log"), text: $search)
+            SearchableText(text: content.isEmpty ? L10n.tr("Waiting for log content…") : content, query: search, fontSize: 11)
+                .id(url)
+        }.padding(12).background(.background)
             .task(id: url) {
+                content = ""
                 while !Task.isCancelled {
                     let snapshot = await Task.detached(priority: .utility) {
                         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
@@ -19,6 +21,7 @@ struct RawLogContent: View {
                         try? handle.seek(toOffset: length > 262144 ? length - 262144 : 0)
                         return String(decoding: (try? handle.readToEnd()) ?? Data(), as: UTF8.self)
                     }.value
+                    guard !Task.isCancelled else { return }
                     if snapshot != content { content = snapshot }
                     do { try await Task.sleep(for: .seconds(1)) } catch { return }
                 }

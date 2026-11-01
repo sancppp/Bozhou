@@ -18,7 +18,7 @@ public struct LogEntry: Codable, Identifiable, Sendable {
 
     public func matches(search: String, level: LogLevel?, category: String) -> Bool {
         (level == nil || self.level == level) && (category.isEmpty || self.category == category) &&
-        (search.isEmpty || "\(message) \(self.category)".localizedCaseInsensitiveContains(search))
+        TextSearch.contains("\(message) \(self.category)", query: search)
     }
 }
 

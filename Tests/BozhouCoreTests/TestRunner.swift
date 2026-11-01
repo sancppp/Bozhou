@@ -29,6 +29,11 @@ func XCTUnwrap<T>(_ value: T?) throws -> T {
 @main
 struct TestRunner {
     static func main() async {
+        if let index = CommandLine.arguments.firstIndex(of: "--verify-update-feed"), CommandLine.arguments.count > index + 1 {
+            do { try await UpdateNetworkTests.verifyPublicRelease(at: URL(fileURLWithPath: CommandLine.arguments[index + 1])) }
+            catch { fail(error.localizedDescription) }
+            exit(failures == 0 ? 0 : 1)
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--probe-host"), CommandLine.arguments.count > index + 2 {
             do {
                 try await LiveProbe.run(workspace: CommandLine.arguments[index + 1], name: CommandLine.arguments[index + 2])
@@ -51,6 +56,11 @@ struct TestRunner {
         }
         let test = CoreTests()
         let cases: [(String, () throws -> Void)] = [
+            ("备份往返、WAL、引用、权限与损坏文件拦截", test.testBackupRoundTripAndValidation),
+            ("更新版本比较、资源匹配和 SHA-256 校验", test.testReleaseVersionsAssetsAndChecksums),
+            ("更新 ZIP 安全验证与应用替换失败回滚", test.testUpdateArchiveAndRollback),
+            ("密钥目录事务、旧数据兼容、引用保留与标签设置", test.testIdentityFoldersAndMigration),
+            ("Unicode 查找、高亮范围与长输出匹配", test.testUnicodeSearchAndOutputMatching),
             ("双语资源、插值安全、英语默认与设置迁移", test.testLocalizationAndLanguageMigration),
             ("SQLite 持久化、更新、历史裁剪与独立收藏", test.testPersistenceAndHistoryRetention),
             ("多跳认证参数与 SSH 配置隔离", test.testChainPreservesHopSettingsAndIsolation),
@@ -77,6 +87,7 @@ struct TestRunner {
             do { try test.setUpWithError(); try run(); try test.tearDownWithError() } catch { fail(error.localizedDescription) }
             print("\(failures == before ? "PASS" : "FAIL") \(name)")
         }
+        do { try await UpdateNetworkTests.run() } catch { fail("Update transport: \(error.localizedDescription)") }
         if CommandLine.arguments.contains("--integration") {
             do { try await IntegrationTests.run() } catch { fail("集成测试：\(error)") }
         }

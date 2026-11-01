@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import plistlib
+import os
 from pathlib import Path
 import re
 import shutil
@@ -17,7 +18,7 @@ macos = app / "Contents" / "MacOS"
 resources = app / "Contents" / "Resources"
 macos.mkdir(parents=True, exist_ok=True)
 resources.mkdir(parents=True, exist_ok=True)
-for executable in ("Bozhou", "BozhouAskPass"):
+for executable in ("Bozhou", "BozhouAskPass", "BozhouUpdater"):
     shutil.copy2(root / ".build" / configuration / executable, macos / executable)
 shutil.copy2(root / "Resources" / "Bozhou.icns", resources / "Bozhou.icns")
 for bundle in ("Bozhou_SwiftTerm.bundle", "Bozhou_BozhouCore.bundle"):
@@ -42,6 +43,14 @@ info = {
     "NSHighResolutionCapable": True,
     "NSPrincipalClass": "NSApplication",
     "NSHumanReadableCopyright": "Copyright © 2026 Bozhou. SwiftTerm is licensed under MIT.",
+    "UTExportedTypeDeclarations": [{
+        "UTTypeIdentifier": "dev.bozhou.backup",
+        "UTTypeDescription": "Bozhou Backup",
+        "UTTypeConformsTo": ["public.data"],
+        "UTTypeTagSpecification": {"public.filename-extension": ["bozhoubackup"]},
+    }],
 }
+if preview := os.environ.get("BOZHOU_PREVIEW_BUILD", "").strip():
+    info["BozhouPreviewBuild"] = preview
 with (app / "Contents" / "Info.plist").open("wb") as stream:
     plistlib.dump(info, stream, sort_keys=False)

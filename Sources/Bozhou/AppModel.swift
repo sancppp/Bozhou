@@ -40,9 +40,12 @@ final class AppModel: ObservableObject {
     private(set) var store: Store
     private(set) var log: AppLog
     let workingDirectory: URL
+    let updater = AppUpdater()
     @Published var hosts: [Host] = []
     @Published var folders: [HostFolder] = []
     @Published var identities: [Identity] = []
+    @Published var identityFolders: [IdentityFolder] = []
+    @Published var selectedIdentityGroup = ""
     @Published var snippets: [Snippet] = []
     @Published var history: [Interaction] = []
     @Published var pins: [Pin] = []
@@ -61,6 +64,7 @@ final class AppModel: ObservableObject {
     @Published var sftpHost: Host?
     @Published var error: String?
     @Published var toast: String?
+    @Published private(set) var libraryRevision = 0
 
     var builder: ConnectionBuilder {
         let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/BozhouAskPass").path
@@ -82,7 +86,7 @@ final class AppModel: ObservableObject {
         HostTree.sorted(hosts.filter {
             HostTree.contains($0.group, in: selectedGroup) &&
             (search.isEmpty || [$0.name, $0.systemProfile?.hostname ?? "", $0.address, $0.username, $0.tags]
-                .joined(separator: " ").localizedCaseInsensitiveContains(search))
+                .contains { TextSearch.contains($0, query: search) })
         }, by: hostSort, ascending: sortAscending)
     }
     var colorScheme: ColorScheme? {
@@ -106,7 +110,9 @@ final class AppModel: ObservableObject {
     }
     func reload() throws {
         hosts = try store.list(Host.self); folders = try store.list(HostFolder.self); identities = try store.list(Identity.self)
+        identityFolders = try store.list(IdentityFolder.self)
         snippets = try store.list(Snippet.self); history = try store.list(Interaction.self); pins = try store.list(Pin.self)
+        libraryRevision &+= 1
     }
     func perform(_ action: () throws -> Void) {
         do { try action() } catch { report(error) }
@@ -223,6 +229,46 @@ final class AppModel: ObservableObject {
         let existing = Set(try store.list(HostFolder.self).map(\.path))
         for path in HostTree.ancestors(path) where !existing.contains(path) { try store.save(HostFolder(path: path)) }
     }
+    var identityGroups: [String] {
+        Array(Set(identityFolders.flatMap { HostTree.ancestors($0.path) } + identities.flatMap { HostTree.ancestors($0.group) })).sorted()
+    }
+    func saveIdentity(_ key: Identity) throws {
+        try store.saveIdentity(key); try reload()
+    }
+    func createIdentityFolder(_ path: String) {
+        perform { try store.createIdentityFolder(path); try reload() }
+    }
+    func renameIdentityFolder(_ path: String, to destination: String) {
+        perform {
+            let target = try HostTree.normalize(destination)
+            try store.renameIdentityFolder(path, to: target)
+            settings = try store.loadSettings()
+            if HostTree.contains(selectedIdentityGroup, in: path) {
+                selectedIdentityGroup = target + selectedIdentityGroup.dropFirst(path.count)
+            }
+            try reload()
+        }
+    }
+    func deleteIdentityFolder(_ path: String) {
+        perform {
+            try store.deleteIdentityFolder(path)
+            settings = try store.loadSettings()
+            if selectedIdentityGroup == path { selectedIdentityGroup = HostTree.parent(path) }
+            try reload()
+        }
+    }
+    func setIdentityGroupExpanded(_ path: String, expanded: Bool) {
+        perform {
+            var updated = settings
+            if expanded { updated.expandedIdentityGroups.insert(path) }
+            else { updated.expandedIdentityGroups.remove(path) }
+            try store.saveSettings(updated); settings = updated
+        }
+    }
+    func setTabPlacement(_ placement: SessionTabPlacement) {
+        settings.tabPlacement = placement
+        saveSettings()
+    }
     func createFolder(_ path: String) {
         perform {
             let normalized = try HostTree.normalize(path)
@@ -296,6 +342,27 @@ final class AppModel: ObservableObject {
             UserDefaults.standard.set(copied.root.path, forKey: "workspacePath")
             try reload(); notify(L10n.tr("Data location changed. Original directory retained."))
         }
+    }
+    func checkWorkspaceSwitch() throws {
+        guard sessions.isEmpty, sftpHost == nil, editorHost == nil else {
+            throw BozhouError.storage(L10n.tr("Close all terminal and SFTP sessions first"))
+        }
+        guard ProcessInfo.processInfo.environment["BOZHOU_DATA_DIR"] == nil else {
+            throw BozhouError.storage(L10n.tr("The data directory is set by BOZHOU_DATA_DIR. Remove that variable before changing locations."))
+        }
+    }
+    func useRestoredWorkspace(_ restored: AppPaths) throws {
+        try checkWorkspaceSwitch()
+        let next = try Store(url: restored.database)
+        let nextSettings = try next.loadSettings()
+        // Decode everything before committing the startup pointer.
+        _ = try next.list(Host.self); _ = try next.list(HostFolder.self)
+        _ = try next.list(Identity.self); _ = try next.list(IdentityFolder.self)
+        _ = try next.list(Snippet.self); _ = try next.list(Interaction.self); _ = try next.list(Pin.self)
+        store = next; paths = restored; log = AppLog(paths: restored); settings = nextSettings
+        selectedGroup = ""; selectedIdentityGroup = ""; search = ""
+        UserDefaults.standard.set(restored.root.path, forKey: "workspacePath")
+        try reload()
     }
     func saveSettings() {
         perform { try store.saveSettings(settings) }

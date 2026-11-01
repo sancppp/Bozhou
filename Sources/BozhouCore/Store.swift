@@ -7,7 +7,8 @@ public final class Store: @unchecked Sendable {
     private let lock = NSRecursiveLock()
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
-    private let tables = ["hosts", "folders", "identities", "snippets", "history", "pins"]
+    // Additive table: older schema-2 apps can still open the workspace and leave it intact.
+    private let tables = ["hosts", "folders", "identities", "identity_folders", "snippets", "history", "pins"]
 
     public init(url: URL) throws {
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {

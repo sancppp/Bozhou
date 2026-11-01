@@ -8,7 +8,8 @@ let package = Package(
     products: [
         .library(name: "BozhouCore", targets: ["BozhouCore"]),
         .executable(name: "Bozhou", targets: ["Bozhou"]),
-        .executable(name: "BozhouAskPass", targets: ["BozhouAskPass"])
+        .executable(name: "BozhouAskPass", targets: ["BozhouAskPass"]),
+        .executable(name: "BozhouUpdater", targets: ["BozhouUpdater"])
     ],
     targets: [
         // Only the macOS library is needed; upstream demo/benchmark dependencies are omitted.
@@ -20,6 +21,7 @@ let package = Package(
         ]),
         .executableTarget(name: "Bozhou", dependencies: ["BozhouCore", "SwiftTerm"]),
         .executableTarget(name: "BozhouAskPass", dependencies: ["BozhouCore"]),
+        .executableTarget(name: "BozhouUpdater", dependencies: ["BozhouCore"]),
         .executableTarget(name: "BozhouCoreTests", dependencies: ["BozhouCore"], path: "Tests/BozhouCoreTests")
     ]
 )

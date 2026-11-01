@@ -28,7 +28,7 @@ for language in ("en", "zh-hans"):
     assert values["Settings"] == ("Settings" if language == "en" else "设置")
     assert values["SSH Authentication"] == ("SSH Authentication" if language == "en" else "SSH 身份验证")
     assert len(values) > 400
-for executable in ("Bozhou", "BozhouAskPass"):
+for executable in ("Bozhou", "BozhouAskPass", "BozhouUpdater"):
     subprocess.run(["codesign", "--verify", "--strict", str(app / "Contents" / "MacOS" / executable)], check=True)
 subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
 print("PASS package version, English default, bilingual resources, licenses, helper and app signatures")

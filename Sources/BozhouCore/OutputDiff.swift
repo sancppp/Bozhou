@@ -7,7 +7,7 @@ public struct DiffLine: Equatable, Sendable {
     public var kind: Kind
 }
 
-public struct OutputDiff: Sendable {
+public struct OutputDiff: Sendable, Equatable {
     public var left: [DiffLine]
     public var right: [DiffLine]
     public var added: Int { right.filter { $0.kind == .added }.count }

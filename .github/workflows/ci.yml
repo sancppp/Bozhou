@@ -41,4 +41,5 @@ jobs:
         run: |
           bash Scripts/build.sh release
           python3 Scripts/verify_package.py
+          python3 Scripts/test_update_helper.py
           git diff --exit-code

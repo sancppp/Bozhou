@@ -9,7 +9,6 @@ struct HostsPage: View {
     @State private var folderPrompt = false
     @State private var folderPath = ""
     @State private var renaming: String?
-    @FocusState private var searchFocused: Bool
     @FocusState private var gridFocused: Bool
     @StateObject private var preview = HostPreviewController()
 
@@ -51,11 +50,8 @@ struct HostsPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField(L10n.tr("Search name, hostname, address, username or tags"), text: $model.search).textFieldStyle(.plain).focused($searchFocused)
-                if !model.search.isEmpty { Button { model.search = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain) }
-            }.padding(9).background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+            SearchField(title: L10n.tr("Search name, hostname, address, username or tags"), text: $model.search,
+                        focusNotification: "BozhouFocusSearch")
             HStack {
                 Text(model.selectedGroup.isEmpty ? L10n.tr("All Hosts") : (model.selectedGroup as NSString).lastPathComponent)
                     .font(.system(size: 18, weight: .semibold))
@@ -123,7 +119,6 @@ struct HostsPage: View {
                     else { model.createFolder(folderPath) }
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .init("BozhouFocusSearch"))) { _ in searchFocused = true }
             .onChange(of: selection) { _, _ in if preview.isVisible { preview.update(selectedHost, hosts: model.hosts) } }
             .onChange(of: model.hosts) { _, _ in if preview.isVisible { preview.update(selectedHost, hosts: model.hosts) } }
             .onChange(of: model.selectedGroup) { _, _ in preview.close() }
@@ -133,7 +128,7 @@ struct HostsPage: View {
     }
 
     private var list: some View {
-        HostListView(rows: rows, expanded: expanded,
+        HostListView(rows: rows, expanded: expanded, search: model.search,
                      selection: $selection, onMove: move, onOpen: open, onToggle: toggle, onPreview: showPreview, menu: nativeMenu)
             .overlay {
                 if rows.isEmpty { Text(L10n.tr("This folder is empty. Add a host or folder.")).foregroundStyle(.secondary).allowsHitTesting(false) }
@@ -236,10 +231,10 @@ struct HostsPage: View {
     }
     private func hostCard(_ host: Host) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { Image(systemName: "server.rack"); HostNameLabel(host.displayName) }.font(.headline).foregroundStyle(sea)
-            Text(host.systemProfile?.hostname ?? L10n.tr("Hostname not yet collected")).font(.system(size: 11, design: .monospaced))
+            HStack { Image(systemName: "server.rack"); HostNameLabel(host.displayName, query: model.search) }.font(.headline).foregroundStyle(sea)
+            HighlightedText(host.systemProfile?.hostname ?? L10n.tr("Hostname not yet collected"), query: model.search).font(.system(size: 11, design: .monospaced))
                 .lineLimit(1).help(host.systemProfile?.hostname ?? L10n.tr("Collected at next login"))
-            Text("\(host.username)@\(host.address)").font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
+            HighlightedText("\(host.username)@\(host.address)", query: model.search).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
             Text(host.lastLoginAt.map { L10n.tr("Last login: \(L10n.date($0, abbreviated: true))") } ?? L10n.tr("Never logged in")).font(.caption2).foregroundStyle(.secondary)
             Divider()
             HStack {

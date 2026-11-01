@@ -5,6 +5,7 @@ struct OutputComparisonView: View {
     @EnvironmentObject var model: AppModel
     let before: Interaction
     let after: Interaction
+    var search = ""
     @State private var diff: OutputDiff?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -20,7 +21,7 @@ struct OutputComparisonView: View {
                 summary(before, label: L10n.tr("Original")); summary(after, label: L10n.tr("Comparison"))
             }
             if let diff {
-                DiffColumns(diff: diff).frame(maxWidth: .infinity, maxHeight: .infinity)
+                DiffColumns(diff: diff, search: search).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else { ProgressView(L10n.tr("Comparing…")).frame(maxWidth: .infinity, maxHeight: .infinity) }
             Text(L10n.tr("Red − Removed · Green + Added · Blank rows align output · Scrolling is synchronized"))
                 .font(.caption).foregroundStyle(.secondary)
@@ -34,8 +35,8 @@ struct OutputComparisonView: View {
     }
     private func summary(_ item: Interaction, label: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack { Text(label); HostNameLabel(model.displayName(for: item)) }.font(.subheadline.weight(.medium))
-            Text(item.command).font(.system(size: 11, design: .monospaced)).lineLimit(3).textSelection(.enabled)
+            HStack { Text(label); HostNameLabel(model.displayName(for: item), query: search) }.font(.subheadline.weight(.medium))
+            HighlightedText(item.command, query: search).font(.system(size: 11, design: .monospaced)).lineLimit(3).textSelection(.enabled)
             Text(L10n.tr("\(L10n.date(item.date)) · Exit \(item.exitCode.map(String.init) ?? L10n.tr("Unknown"))"))
                 .font(.caption2).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -45,6 +46,7 @@ struct OutputComparisonView: View {
 /// AppKit text views provide native selection, copy, accessibility and horizontal scrolling.
 private struct DiffColumns: NSViewRepresentable {
     let diff: OutputDiff
+    let search: String
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSStackView {
         let split = NSStackView()
@@ -71,9 +73,15 @@ private struct DiffColumns: NSViewRepresentable {
         return split
     }
     func updateNSView(_ split: NSStackView, context: Context) {
+        let coordinator = context.coordinator
+        let changed = coordinator.diff != diff
+        guard changed || coordinator.search != search else { return }
+        coordinator.task?.cancel()
+        coordinator.diff = diff; coordinator.search = search
         let scrolls = split.arrangedSubviews.compactMap { $0 as? NSScrollView }
         for (scroll, lines) in zip(scrolls, [diff.left, diff.right]) {
             guard let text = scroll.documentView as? NSTextView else { continue }
+            if !changed { continue }
             let result = NSMutableAttributedString()
             for line in lines {
                 let prefix = line.kind == .removed ? "−" : line.kind == .added ? "+" : " "
@@ -90,8 +98,28 @@ private struct DiffColumns: NSViewRepresentable {
             text.setFrameSize(NSSize(width: max(text.frame.width, scroll.contentSize.width),
                                      height: max(text.frame.height, scroll.contentSize.height)))
         }
+        let texts = scrolls.compactMap { $0.documentView as? NSTextView }
+        let strings = texts.map(\.string), query = search
+        coordinator.task = Task { @MainActor in
+            let matches = await TextSearch.background { strings.map { TextSearch.ranges(in: $0, query: query) } }
+            guard !Task.isCancelled else { return }
+            for (text, hits) in zip(texts, matches) {
+                let all = NSRange(location: 0, length: (text.string as NSString).length)
+                text.layoutManager?.removeTemporaryAttribute(.backgroundColor, forCharacterRange: all)
+                text.layoutManager?.removeTemporaryAttribute(.foregroundColor, forCharacterRange: all)
+                for hit in hits {
+                    text.layoutManager?.addTemporaryAttributes([.backgroundColor: NSColor.systemYellow.withAlphaComponent(0.65),
+                                                               .foregroundColor: NSColor.black], forCharacterRange: hit)
+                }
+                if let first = hits.first { text.scrollRangeToVisible(first) }
+            }
+        }
     }
+    static func dismantleNSView(_ nsView: NSStackView, coordinator: Coordinator) { coordinator.task?.cancel() }
     final class Coordinator {
+        var diff: OutputDiff?
+        var search = ""
+        var task: Task<Void, Never>?
         var observers: [NSObjectProtocol] = []
         private var updating = false
         func observe(_ scrolls: [NSScrollView]) {
@@ -106,6 +134,6 @@ private struct DiffColumns: NSViewRepresentable {
                 })
             }
         }
-        deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+        deinit { task?.cancel(); observers.forEach(NotificationCenter.default.removeObserver) }
     }
 }

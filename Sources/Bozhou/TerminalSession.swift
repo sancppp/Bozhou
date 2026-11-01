@@ -49,6 +49,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
     @Published var ended = false
     @Published var recent: [Interaction] = []
     @Published var shell = ""
+    @Published private(set) var customTabName: String?
     @Published private(set) var reconnecting = false
     var onInteraction: ((Interaction) -> Void)?
     var onExit: ((String) -> Void)?
@@ -71,6 +72,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
     private var started = false
     var title: String { host?.name ?? L10n.tr("Local Terminal") }
     var displayName: HostDisplayName { host?.displayName ?? HostDisplayName(name: title, hostname: nil) }
+    var tabDisplayName: HostDisplayName {
+        HostDisplayName(name: customTabName ?? title, hostname: displayName.hostname)
+    }
+    func renameTab(_ name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
+        customTabName = name.isEmpty ? nil : name
+    }
     init(host: Host?, launch: SSHLaunch, settings: AppSettings, directory: URL) {
         self.host = host; self.launch = launch; self.directory = directory; self.settings = settings
         terminal = RecordingTerminalView(frame: NSRect(x: 0, y: 0, width: 900, height: 500))
@@ -442,13 +450,15 @@ struct TerminalPane: View {
                         }
                     }.padding(16).frame(width: 250).background(Color(nsColor: .controlBackgroundColor))
                 }
-            }
+            }.frame(width: width)
             HStack {
                 Text(L10n.tr("⌃C Interrupt · ⌘K Clear · ⌘−/⌘= Font size · ⌘C Copy · ⌘V Paste · Tab Complete · ↑ History")).lineLimit(1)
                 Spacer()
                 Text(session.shell.isEmpty ? L10n.tr("Waiting for authentication") : session.shell)
+                    .lineLimit(1).truncationMode(.middle)
             }.font(.system(size: 10)).foregroundStyle(.secondary).padding(.horizontal, 14).padding(.vertical, 6).background(.bar)
-        }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: showInteractions)
+        }.frame(width: width)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: showInteractions)
             .sheet(isPresented: $showLog) {
                 if let url = session.logURL { RawSSHLogView(url: url) }
             }

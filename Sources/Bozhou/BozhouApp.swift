@@ -35,11 +35,12 @@ struct BozhouApp: App {
     var body: some Scene {
         Window(L10n.tr("Bozhou"), id: "main") {
             RootView().environmentObject(model).environment(\.locale, L10n.language.locale)
-                .onAppear { delegate.model = model }
+                .onAppear { delegate.model = model; model.updater.checkOnLaunch() }
         }.defaultSize(width: 1100, height: 720)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
         .commands {
+            FindCommands()
             CommandGroup(replacing: .newItem) {
                 Button(L10n.tr("New Host")) { model.editorHost = Host() }.keyboardShortcut("n")
                 Button(L10n.tr("New Local Terminal")) { model.localTerminal() }.keyboardShortcut("t")
@@ -72,6 +73,7 @@ struct BozhouApp: App {
             }
             CommandGroup(replacing: .appInfo) {
                 Button(L10n.tr("About Bozhou")) { showAboutPanel() }
+                Button(L10n.tr("Check for Updates…")) { model.updater.check() }
             }
             CommandGroup(replacing: .help) {
                 Button(L10n.tr("Bozhou Project Homepage")) { NSWorkspace.shared.open(AppLinks.repository) }

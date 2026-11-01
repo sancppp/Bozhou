@@ -13,6 +13,7 @@ struct HostRow: Identifiable, Equatable {
 struct HostListView: NSViewRepresentable {
     var rows: [HostRow]
     var expanded: Set<String>
+    var search = ""
     @Binding var selection: String?
     var onMove: (MoveCommandDirection) -> Void
     var onOpen: (HostRow) -> Void
@@ -52,7 +53,7 @@ struct HostListView: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let coordinator = context.coordinator
-        let changed = coordinator.parent.rows != rows || coordinator.parent.expanded != expanded
+        let changed = coordinator.parent.rows != rows || coordinator.parent.expanded != expanded || coordinator.parent.search != search
         coordinator.parent = self
         guard let table = coordinator.table else { return }
         coordinator.updating = true
@@ -112,6 +113,7 @@ struct HostListView: NSViewRepresentable {
             title.frame = NSRect(x: indent + 46, y: isFolder ? 6 : 19, width: max(80, tableView.bounds.width - indent - 70 - detailWidth), height: 17)
             title.autoresizingMask = [.width]
             title.hostName = item.host?.displayName ?? HostDisplayName(name: item.folder.map { ($0 as NSString).lastPathComponent } ?? "", hostname: nil)
+            title.query = parent.search
             cell.textField = title; cell.addSubview(title)
             if let host = item.host {
                 let subtitle = NSTextField(labelWithString: "\(host.username)@\(host.address):\(host.port)" + (host.favorite ? "  ★" : ""))
@@ -119,6 +121,7 @@ struct HostListView: NSViewRepresentable {
                 subtitle.textColor = .secondaryLabelColor; subtitle.lineBreakMode = .byTruncatingTail
                 subtitle.frame = NSRect(x: indent + 46, y: 3, width: max(80, tableView.bounds.width - indent - 70 - detailWidth), height: 14)
                 subtitle.autoresizingMask = [.width]; cell.addSubview(subtitle)
+                highlight(subtitle)
                 cell.toolTip = L10n.tr("\(host.name)\nHostname: \(host.systemProfile?.hostname ?? L10n.tr("Collected at next login"))\n\(host.username)@\(host.address):\(host.port)\n")
                     + (host.lastLoginAt.map { L10n.tr("Last login: \(L10n.date($0))") } ?? L10n.tr("Never logged in"))
                 let details = [
@@ -132,9 +135,18 @@ struct HostListView: NSViewRepresentable {
                     label.frame = NSRect(x: tableView.bounds.width - detailWidth - 10, y: line == 0 ? 20 : 3,
                                          width: detailWidth, height: 14)
                     label.autoresizingMask = [.minXMargin]; cell.addSubview(label)
+                    highlight(label)
                 }
             }
             return cell
+        }
+        private func highlight(_ field: NSTextField) {
+            let value = NSMutableAttributedString(attributedString: field.attributedStringValue)
+            for range in TextSearch.ranges(in: value.string, query: parent.search) {
+                value.addAttributes([.backgroundColor: NSColor.systemYellow.withAlphaComponent(0.65),
+                                     .foregroundColor: NSColor.black], range: range)
+            }
+            field.attributedStringValue = value
         }
     }
 }

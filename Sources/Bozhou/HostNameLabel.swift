@@ -4,14 +4,15 @@ import BozhouCore
 
 struct HostNameLabel: View {
     let name: HostDisplayName
-    init(_ name: HostDisplayName) { self.name = name }
+    var query: String
+    init(_ name: HostDisplayName, query: String = "") { self.name = name; self.query = query }
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            Text(name.full).fixedSize()
-            Text(name.compact).fixedSize()
+            HighlightedText(name.full, query: query).fixedSize()
+            HighlightedText(name.compact, query: query).fixedSize()
             HStack(spacing: 0) {
-                Text(name.name).lineLimit(1).truncationMode(.middle)
-                Text(name.suffix(compact: true)).fixedSize()
+                HighlightedText(name.name, query: query).lineLimit(1).truncationMode(.middle)
+                HighlightedText(name.suffix(compact: true), query: query).fixedSize()
             }
         }.help(name.full).accessibilityLabel(name.full)
     }
@@ -49,6 +50,7 @@ struct HostPicker: View {
 
 /// NSTableView cells are resized by AppKit without reloading their row.
 final class HostNameTextField: NSTextField {
+    var query = "" { didSet { fitName() } }
     var hostName = HostDisplayName(name: "", hostname: nil) {
         didSet { toolTip = hostName.full; fitName() }
     }
@@ -70,7 +72,12 @@ final class HostNameTextField: NSTextField {
                     + String(hostName.name.suffix(max(0, count / 2))) + suffix
             } while count > 0 && !fits(value)
         }
-        if stringValue != value { stringValue = value }
+        let rendered = NSMutableAttributedString(string: value, attributes: attributes)
+        for range in TextSearch.ranges(in: value, query: query) {
+            rendered.addAttributes([.backgroundColor: NSColor.systemYellow.withAlphaComponent(0.65),
+                                    .foregroundColor: NSColor.black], range: range)
+        }
+        if attributedStringValue != rendered { attributedStringValue = rendered }
         setAccessibilityLabel(hostName.full)
     }
 }
