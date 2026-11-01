@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.0
+
+### Search and workspace organization
+
+- Use Command-F to search logs, command history, pinned interactions, keys, snippets and known hosts, with matching text highlighted and previous/next navigation in output viewers.
+- Start searching one second after typing stops. Match long text in the background, cancel obsolete searches and cache history and pin results.
+- Organize keys in nested folders with rename, move and saved expansion state while preserving host references.
+- Rename session tabs and switch between horizontal and vertical tab bars. Compact tabs keep the last six hostname characters visible.
+
+### Local data backups
+
+- Export and import versioned `.bozhoubackup` files containing hosts, folders, key records, snippets, history, pins, settings, fingerprints and logs.
+- Validate backup integrity and restore into a new directory, retaining the previous workspace.
+- Backups contain saved passwords and are not encrypted. External private key files and temporary sessions are excluded; the size limit is 512 MiB.
+
+### In-app updates
+
+- Check GitHub releases at launch or manually from the app menu and Settings, then download and install a newer Apple Silicon version.
+- Verify checksums, archive paths, bundle identity, version, architecture and code signatures before installing.
+- Wait for the app to quit, retain the previous app and restart after replacement. Replacement or launch-command failures restore the previous app.
+- Upgrading from a published version without an update menu requires one manual installation. The preview with an update menu can download this release directly.
+
 ## 1.1.1
 
 ### SSH host key isolation
