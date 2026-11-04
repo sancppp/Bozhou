@@ -187,6 +187,7 @@ enum IntegrationTests {
         print("PASS 主机指纹变化时 OpenSSH 拒绝连接")
 
         try await RouteIntegrationTests.run(root: root, fixture: json, identity: identity, askpass: askpass.path)
+        try await HostKeyRotationIntegrationTests.run(root: root, fixture: json, identity: identity, askpass: askpass.path)
 
         // Prepare explicit test-only app data for UI verification; production data remains empty.
         let uiPaths = try AppPaths(root: root.appendingPathComponent("ui-app"))

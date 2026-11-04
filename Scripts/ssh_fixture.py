@@ -219,6 +219,7 @@ async def main():
     wrong_key = asyncssh.generate_private_key("ssh-ed25519").export_public_key().decode().strip()
     (ROOT / "wrong_known_hosts").write_text("".join(f"[127.0.0.1]:{port} {wrong_key}\n" for port in PORTS))
     routes = []
+    rotations = []
     for site in ("a", "b"):
         mapping = {}
         for role, address in (("target", "192.0.2.2"), ("relay", "192.0.2.1"), ("gateway", None)):
@@ -233,6 +234,8 @@ async def main():
                 sftp_factory=lambda chan, remote=remote: asyncssh.SFTPServer(chan, chroot=str(remote)),
             )
             servers.append(server)
+            if site == "a":
+                rotations.append((role, server))
             if address:
                 mapping[(address, 22)] = server.get_port()
             else:
@@ -241,7 +244,20 @@ async def main():
     with socket.socket() as free_port:
         free_port.bind(("127.0.0.1", 0))
         local_port = free_port.getsockname()[1]
+    rotations.append(("direct", servers[2]))
+    rotation_number = 0
+    def rotate_key():
+        nonlocal rotation_number
+        role, server = rotations[rotation_number]
+        replacement = asyncssh.generate_private_key("ssh-ed25519")
+        server.update(server_host_keys=[replacement])
+        rotation_number += 1
+        (ROOT / "rotation.json").write_text(json.dumps({
+            "number": rotation_number, "role": role, "fingerprint": replacement.get_fingerprint("sha256"),
+        }))
+    (ROOT / "rotation.json").unlink(missing_ok=True)
     (ROOT / "fixture.json").write_text(json.dumps({"ports": PORTS, "http_port": HTTP_PORT, "forward_port": local_port,
+                                                "pid": os.getpid(),
                                                 "root": str(ROOT), "routes": routes, "wrong_key": wrong_key}))
     print(json.dumps({"ready": True, "ports": PORTS}), flush=True)
     stop = asyncio.Event()
@@ -250,6 +266,9 @@ async def main():
         loop.add_signal_handler(sig, stop.set)
     # UI reconnect verification: close only active fixture transports, retaining listeners/keys.
     loop.add_signal_handler(signal.SIGUSR1, lambda: [conn.abort() for conn in list(CONNECTIONS)])
+    # Isolated reinstall simulation: replace one listener's key while preserving
+    # endpoints and the other site's active connections.
+    loop.add_signal_handler(signal.SIGUSR2, rotate_key)
     await stop.wait()
     http_server.close()
     await http_server.wait_closed()

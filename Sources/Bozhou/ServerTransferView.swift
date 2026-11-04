@@ -27,6 +27,7 @@ private final class RelayModel: ObservableObject {
     @Published var transferred: UInt64 = 0
     @Published var status = L10n.tr("Select two servers, then connect")
     @Published var error: String?
+    @Published private(set) var hostKeyFailure: SSHHostKeyFailure?
     private var left: SFTPClient?
     private var right: SFTPClient?
     private var task: Task<Void, Never>?
@@ -36,6 +37,7 @@ private final class RelayModel: ObservableObject {
         guard !busy, let a = model.hosts.first(where: { $0.id == leftID }),
               let b = model.hosts.first(where: { $0.id == rightID }) else { return }
         cancel()
+        hostKeyFailure = nil
         let generation = self.generation
         do {
             let left = SFTPClient(launch: try model.builder.build(host: a, hosts: model.hosts, identities: model.identities, sftp: true))
@@ -54,7 +56,11 @@ private final class RelayModel: ObservableObject {
                     connected = true; status = L10n.tr("Both servers connected")
                 } catch {
                     guard self.generation == generation else { return }
-                    self.error = error.localizedDescription; cancel()
+                    let failure = error as? SSHHostKeyFailure
+                    cancel()
+                    hostKeyFailure = failure
+                    self.error = failure == nil ? error.localizedDescription : nil
+                    if let failure { status = failure.localizedDescription }
                 }
                 if self.generation == generation { busy = false }
             }
@@ -123,13 +129,18 @@ struct ServerTransferView: View {
     @State private var destination = ""
     @State private var leftInput = "/"
     @State private var rightInput = "/"
+    @State private var showHostKey = false
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Label(L10n.tr("Server-to-Server Transfer"), systemImage: "arrow.left.arrow.right").font(.headline)
                 Spacer()
-                Button(L10n.tr("Connect Servers")) { relay.connect(model) }.disabled(relay.busy || relay.leftID == nil || relay.rightID == nil)
+                if relay.hostKeyFailure != nil {
+                    Button(L10n.tr("Review Changed Host Key…")) { showHostKey = true }
+                } else {
+                    Button(L10n.tr("Connect Servers")) { relay.connect(model) }.disabled(relay.busy || relay.leftID == nil || relay.rightID == nil)
+                }
                 Button(L10n.tr("Done")) { relay.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
             }.padding(20)
             HSplitView {
@@ -148,6 +159,11 @@ struct ServerTransferView: View {
                 Spacer()
             }.font(.caption).padding(16).background(.bar)
         }.frame(width: 1040, height: 650)
+            .sheet(isPresented: $showHostKey) {
+                if let failure = relay.hostKeyFailure {
+                    HostKeyRecoveryView(failure: failure) { relay.connect(model) }
+                }
+            }
             .onAppear { relay.leftID = host.id; relay.rightID = model.hosts.first { $0.id != host.id }?.id }
             .onDisappear { relay.cancel() }
             .onChange(of: relay.leftPath) { _, path in leftInput = path }

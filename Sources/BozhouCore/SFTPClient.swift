@@ -60,6 +60,8 @@ private final class SFTPTransport: @unchecked Sendable {
     private let stateLock = NSLock()
     private var cancelled = false
     private var diagnostic = Data()
+    private let diagnosticEOF = DispatchGroup()
+    private var diagnosticEnded = false
     private let process = Process()
     private let input = Pipe(), output = Pipe(), errors = Pipe()
     private let launch: SSHLaunch
@@ -82,11 +84,16 @@ private final class SFTPTransport: @unchecked Sendable {
         if cancelled { throw BozhouError.cancelled }
         try process.run()
     }
-    private func failure() -> BozhouError {
+    private func failure() -> Error {
+        // stdout EOF and stderr callbacks run on different queues. Give the
+        // exiting SSH (including a failed ProxyCommand child) time to deliver
+        // its final warning before classifying the failure.
+        _ = diagnosticEOF.wait(timeout: .now() + .milliseconds(200))
         stateLock.lock(); defer { stateLock.unlock() }
         let text = String(decoding: diagnostic, as: UTF8.self) + "\n" +
             (launch.logURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "")
-        return .connection(L10n.tr("SFTP connection closed. Check the network, authentication and host fingerprint.\n\(text)"))
+        if let changed = SSHHostKeyFailure.detect(output: text, launch: launch) { return changed }
+        return BozhouError.connection(L10n.tr("SFTP connection closed. Check the network, authentication and host fingerprint.\n\(text)"))
     }
     func start() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -99,10 +106,18 @@ private final class SFTPTransport: @unchecked Sendable {
                     self.process.standardInput = self.input
                     self.process.standardOutput = self.output
                     self.process.standardError = self.errors
+                    self.diagnosticEOF.enter()
                     self.errors.fileHandleForReading.readabilityHandler = { [weak self] handle in
                         let data = handle.availableData
                         guard !data.isEmpty else {
                             handle.readabilityHandler = nil
+                            if let self {
+                                self.stateLock.lock()
+                                let firstEOF = !self.diagnosticEnded
+                                self.diagnosticEnded = true
+                                self.stateLock.unlock()
+                                if firstEOF { self.diagnosticEOF.leave() }
+                            }
                             return
                         }
                         guard let self else { return }

@@ -45,6 +45,7 @@ python3 --version
 | `TerminalAppearance.swift` | 字体、色值校验及前景对比度 |
 | `SFTPView.swift`、`ServerTransferView.swift` | 文件浏览和双服务器传输；异步结果用 generation 隔离 |
 | `ConnectionBuilder.swift` | 参数校验、展开跳板、生成每次会话独立的 SSHLaunch |
+| `SSHHostKeyFailure.swift`、`HostKeyRecoveryView.swift` | 基于本次连接的节点标识识别密钥变化、确认后定点重置信任并重连 |
 | `ShellIntegration.swift`、`SystemProbe.swift` | Shell 启动 Hook、OSC 字节流解析、登录时只读系统信息采集 |
 | `TerminalDiagnostics.swift` | 异常退出状态、有限上下文、私有日志落盘与保留数量 |
 | `SFTPClient.swift` | SFTP v3 actor；专属 DispatchQueue 执行阻塞管道 IO |
@@ -109,6 +110,7 @@ sequenceDiagram
 
 - 使用系统 `/usr/bin/ssh` 和独立 `-F` 配置，不依赖用户 `~/.ssh/config`。指纹库独立，首次需确认、变化时拒绝。
 - 经跳板或网络代理的每一级 SSH 使用稳定 `HostKeyAlias`：按完整路径前缀的地址、端口及代理类型生成版本化 SHA-256 标识。SSH/SFTP、重连、改名和凭据修改共用同一路径的指纹；不同路径的同地址互不冲突。直连沿用地址/端口记录；旧版路由指纹需重新确认，不能自动继承无路径信息的旧记录或清空指纹库。
+- 主机重装后的密钥变化仍须拦截。`SSHLaunch.hostKeyEndpoints` 保存本次实际目标与跳板的信任标识；仅登录就绪前将 PTY 子 SSH 输出和外层日志合并识别 `host_key_changed`，不能把远端命令输出当成信任变更。SSH/SFTP/双服务器界面可在用户核对指纹后删除该节点的旧记录，支持 OpenSSH 哈希和逗号列表，保留其他节点、路径及 CA/撤销记录；核对期间指纹库变化须拒绝过期重置。重连仍需 OpenSSH 首次指纹确认，不自动接受替换密钥。
 - 跳板每级保留自己的主机 ID、认证、用户名和端口；嵌套 ProxyCommand 的路径需同时正确处理 Shell 引用和 OpenSSH `%` 展开。
 - 密码按当前产品行为明文存于数据库；不得输出到工具日志、进程参数、环境变量或提交。私钥仅保存路径，口令和验证码不持久化。
 - AskPass 使用 `Store.savePassword` 仅更新凭据字段，不能回写旧 Host 快照覆盖其他字段。

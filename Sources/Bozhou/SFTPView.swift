@@ -18,6 +18,7 @@ final class FileBrowserModel: ObservableObject {
     @Published var busy = false
     @Published var status = L10n.tr("Not connected yet")
     @Published var error: String?
+    @Published private(set) var hostKeyFailure: SSHHostKeyFailure?
     @Published var progress: Double = 0
     private var client: SFTPClient?
     private var task: Task<Void, Never>?
@@ -26,6 +27,7 @@ final class FileBrowserModel: ObservableObject {
     func connect(model: AppModel, host: Host) {
         guard !busy else { return }
         cancel()
+        hostKeyFailure = nil
         let generation = self.generation
         log = model.log
         localDirectory = model.workingDirectory
@@ -44,7 +46,10 @@ final class FileBrowserModel: ObservableObject {
                     log?.write(L10n.tr("SFTP connected: \(host.name)"))
                 } catch {
                     guard self.generation == generation else { return }
-                    self.error = error.localizedDescription; status = L10n.tr("Connection failed"); connected = false; client.cancel()
+                    hostKeyFailure = error as? SSHHostKeyFailure
+                    self.error = hostKeyFailure == nil ? error.localizedDescription : nil
+                    status = hostKeyFailure?.localizedDescription ?? L10n.tr("Connection failed")
+                    connected = false; client.cancel()
                 }
                 busy = false
             }
@@ -179,6 +184,7 @@ struct SFTPView: View {
     @State private var name = ""
     @State private var deleteTarget: RemoteFile?
     @State private var serverTransfer = false
+    @State private var showHostKey = false
     private var selectedRemote: RemoteFile? { browser.remoteEntries.first { $0.name == remoteSelection } }
     private var selectedLocal: LocalEntry? { browser.localEntries.first { $0.id == localSelection } }
     var body: some View {
@@ -191,7 +197,11 @@ struct SFTPView: View {
                 }
                 Spacer()
                 Button(L10n.tr("Server-to-Server Transfer")) { serverTransfer = true }
-                if !browser.connected && !browser.busy { Button(L10n.tr("Reconnect")) { browser.connect(model: model, host: host) } }
+                if !browser.connected && !browser.busy {
+                    if browser.hostKeyFailure != nil {
+                        Button(L10n.tr("Review Changed Host Key…")) { showHostKey = true }
+                    } else { Button(L10n.tr("Reconnect")) { browser.connect(model: model, host: host) } }
+                }
                 Button(L10n.tr("Done")) { browser.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
             }.padding(20)
             Divider()
@@ -212,6 +222,11 @@ struct SFTPView: View {
             }.padding(16).background(.bar)
         }.frame(width: 1000, height: 660).tint(sea)
             .sheet(isPresented: $serverTransfer) { ServerTransferView(host: host).environmentObject(model) }
+            .sheet(isPresented: $showHostKey) {
+                if let failure = browser.hostKeyFailure {
+                    HostKeyRecoveryView(failure: failure) { browser.connect(model: model, host: host) }
+                }
+            }
             .onAppear { browser.connect(model: model, host: host) }
             .onDisappear { browser.cancel() }
             .onChange(of: browser.remoteDirectory) { _, value in remoteInput = value; remoteSelection = nil }

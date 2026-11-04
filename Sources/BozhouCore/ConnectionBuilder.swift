@@ -8,6 +8,8 @@ public struct SSHLaunch {
     public var directory: URL
     public var token: String
     public var logURL: URL?
+    public var knownHostsURL: URL?
+    public var hostKeyEndpoints: [SSHHostKeyEndpoint] = []
     public init(executable: String = "/usr/bin/ssh", arguments: [String], environment: [String: String], directory: URL, token: String, logURL: URL? = nil) {
         self.executable = executable; self.arguments = arguments; self.environment = environment
         self.directory = directory; self.token = token
@@ -166,7 +168,12 @@ public struct ConnectionBuilder {
                 }
                 args += ["-tt", "bz-\(chain.count)", ShellIntegration.bootstrap(host: host, token: token)]
             }
-            return SSHLaunch(arguments: args, environment: env, directory: directory, token: token, logURL: logURL)
+            var launch = SSHLaunch(arguments: args, environment: env, directory: directory, token: token, logURL: logURL)
+            launch.knownHostsURL = paths.knownHosts
+            launch.hostKeyEndpoints = route.enumerated().map { index, item in
+                SSHHostKeyEndpoint(host: item, alias: hostKeyAlias(for: Array(route.prefix(index + 1))))
+            }
+            return launch
         } catch {
             try? FileManager.default.removeItem(at: directory)
             throw error

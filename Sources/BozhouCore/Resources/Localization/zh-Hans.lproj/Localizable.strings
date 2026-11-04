@@ -45,6 +45,14 @@
 "Authentication method" = "认证方式";
 "Auto refresh" = "自动刷新";
 "Automatic reconnection stopped" = "自动重连已停止";
+"Server identity changed: {0}" = "服务器身份已变化：{0}";
+"Server Identity Changed" = "服务器身份已变化";
+"Review Changed Host Key…" = "查看变化的主机指纹…";
+"Reset Saved Key and Reconnect" = "重置已保存指纹并重连";
+"Reinstalling a server can change its SSH host key. Verify the new fingerprint through a trusted channel before resetting the saved key." = "服务器重装可能更换 SSH 主机密钥。重置已保存指纹前，请通过可信渠道核对新指纹。";
+"Only this server on this connection route will be reset. Reconnecting will ask you to confirm the new key; other saved keys will be kept." = "仅重置当前连接路径上该服务器的指纹。重连时会要求确认新指纹，其他已保存指纹将保留。";
+"Saved host keys changed. Reconnect and review the current warning again." = "已保存指纹发生变化。请重新连接并核对当前警告。";
+"The old server key is no longer saved. Reconnect to verify its current identity." = "旧服务器密钥已不在指纹库中。请重连并核对当前身份。";
 "Background hex color" = "背景色值";
 "Bash and Zsh support automatic interaction recording. Other shells support manual snapshots." = "bash / zsh 支持自动交互记录；其他 shell 可使用手动快照。";
 "Basic Information" = "基本信息";

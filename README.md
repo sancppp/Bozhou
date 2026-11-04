@@ -32,6 +32,8 @@ Bozhou uses macOS `/usr/bin/ssh` with a separate configuration for each connecti
 
 Hosts with the same IP and port behind different jump chains or network proxies can connect simultaneously. Fingerprints are scoped to the full route, including intermediate jumps, and shared by SSH and SFTP on that route. When upgrading from address-only fingerprint storage, routed hosts require confirmation once more; direct connections retain their existing trust records. There is no need to delete the old fingerprint database.
 
+After a server reinstall changes its SSH key, choose **Review Changed Host Key…** in the failed terminal, SFTP or server-to-server connection. The review names the actual failed destination or jump host and shows its new fingerprint. Verify it through a trusted channel, then reset the saved key and reconnect to confirm the new key. Other hosts and connection routes retain their saved keys.
+
 ## Installation
 
 See [CHANGELOG.md](CHANGELOG.md) for release changes.

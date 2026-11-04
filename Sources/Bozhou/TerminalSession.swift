@@ -51,6 +51,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
     @Published var shell = ""
     @Published private(set) var customTabName: String?
     @Published private(set) var reconnecting = false
+    @Published private(set) var hostKeyFailure: SSHHostKeyFailure?
     var onInteraction: ((Interaction) -> Void)?
     var onExit: ((String) -> Void)?
     var onCompletion: (() -> Void)?
@@ -165,6 +166,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
         if manual { retry.reset() }
         do {
             launch = try makeLaunch()
+            hostKeyFailure = nil
             // Each transport gets a fresh PTY to prevent late callbacks from a previous process.
             terminal.processDelegate = nil
             terminal = RecordingTerminalView(frame: terminal.frame)
@@ -202,8 +204,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
         let completed = code == 0 && (recorder.shellExitCode == nil || recorder.shellExitCode == 0)
         status = completed ? L10n.tr("Session ended") : L10n.tr("Session ended unexpectedly (\(code.map(String.init) ?? L10n.tr("Unknown")))")
         let diagnostic = TerminalDiagnostic.tail(of: logURL)
+        if readyAt == nil, recorder.shellExitCode == nil, code == 255 {
+            hostKeyFailure = SSHHostKeyFailure.detect(
+                output: diagnostic + "\n" + String(decoding: recorder.recentOutput, as: UTF8.self), launch: launch)
+            if let failure = hostKeyFailure { status = failure.localizedDescription }
+        }
         if !completed {
-            saveDiagnostic(reason: recorder.shellExitCode == nil ? "transport_or_process_failure" : "shell_nonzero_exit",
+            saveDiagnostic(reason: hostKeyFailure != nil ? "host_key_changed" :
+                            recorder.shellExitCode == nil ? "transport_or_process_failure" : "shell_nonzero_exit",
                            waitStatus: exitCode)
             if !diagnostic.isEmpty { terminal.feed(text: "\r\n" + diagnostic.suffix(8192).replacingOccurrences(of: "\n", with: "\r\n")) }
         }
@@ -219,7 +227,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
         // may itself contain "permission denied" and must not suppress a later network retry.
         let output = readyAt == nil ? diagnostic + String(decoding: recorder.recentOutput.suffix(8192), as: UTF8.self) : ""
         // A shell's explicit 255 (or crash) is not a transport failure to retry.
-        if host != nil, recorder.shellExitCode == nil,
+        if host != nil, hostKeyFailure == nil, recorder.shellExitCode == nil,
            let delay = retry.nextDelay(exitCode: code, output: output, enabled: settings.autoReconnect) {
             reconnecting = true
             status += L10n.tr(" · Retrying in \(delay)s (\(retry.attempts)/5)")
@@ -368,6 +376,7 @@ struct TerminalPane: View {
     @State private var showInteractions = true
     @State private var showLog = false
     @State private var showDiagnostic = false
+    @State private var showHostKey = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         GeometryReader { geometry in pane(width: geometry.size.width) }
@@ -409,7 +418,11 @@ struct TerminalPane: View {
                     Button(L10n.tr("Stop Retrying")) { session.cancelReconnect() }
                 }
                 if session.ended, session.host != nil {
-                    Button(L10n.tr("Reconnect")) { session.reconnect() }.buttonStyle(.borderedProminent)
+                    if session.hostKeyFailure != nil {
+                        Button(L10n.tr("Review Changed Host Key…")) { showHostKey = true }.buttonStyle(.borderedProminent)
+                    } else {
+                        Button(L10n.tr("Reconnect")) { session.reconnect() }.buttonStyle(.borderedProminent)
+                    }
                 }
             }.padding(12).background(.bar)
             HStack(spacing: 0) {
@@ -464,6 +477,11 @@ struct TerminalPane: View {
             }
             .sheet(isPresented: $showDiagnostic) {
                 if let url = session.diagnosticURL { RawSSHLogView(url: url, title: L10n.tr("Exit Context")) }
+            }
+            .sheet(isPresented: $showHostKey) {
+                if let failure = session.hostKeyFailure {
+                    HostKeyRecoveryView(failure: failure) { session.reconnect() }
+                }
             }
             .onAppear { if model.splitSession != nil { showInteractions = false } }
             .onChange(of: model.splitSession) { _, value in if value != nil { showInteractions = false } }

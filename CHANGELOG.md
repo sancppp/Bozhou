@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.1
+
+### Reinstalled servers and changed SSH host keys
+
+- Identify the destination or jump host whose SSH key changed, including failures reported by an inner SSH process.
+- Add **Review Changed Host Key…** to terminal, SFTP and server-to-server connection failures. Verify the displayed fingerprint, reset that endpoint's saved key and reconnect to confirm the new key.
+- Preserve keys for other hosts and routes, support hashed records and refuse resets when the trust database changed while the review was open.
+- Keep changed keys blocked until explicitly reviewed; record these terminal failures as `host_key_changed` and stop automatic retries.
+
 ## 1.2.0
 
 ### Search and workspace organization

@@ -43,6 +43,7 @@ struct NativeRegressionTests {
 
         try await testSessionSwitching(model)
         try await testTerminalLifecycle(model)
+        try await testHostKeyFailure(model)
         testFontAndNames(model)
 
         let browser = FileBrowserModel()
@@ -90,6 +91,43 @@ struct NativeRegressionTests {
         let deadline = Date().addingTimeInterval(10)
         while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(30)) }
         precondition(condition(), "Timed out waiting for the isolated terminal")
+    }
+
+    @MainActor static func testHostKeyFailure(_ model: AppModel) async throws {
+        let gateway = Host(name: "reinstalled gateway", address: "gateway.example")
+        var target = Host(name: "destination", address: "192.0.2.2")
+        target.jumpHosts = [gateway.id]
+        var ssh = try model.builder.build(host: target, hosts: [gateway], identities: [])
+        let old = Data("gateway.example ssh-ed25519 Zml4dHVyZQ==\nother.example ssh-ed25519 Zml4dHVyZQ==\n".utf8)
+        try old.write(to: model.paths.knownHosts)
+        let warning = """
+        @ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!
+        SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.
+        Host key for gateway.example has changed and you have requested strict checking.
+        Host key verification failed.
+        """
+        try Data("kex_exchange_identification: Connection closed by remote host\nConnection closed by UNKNOWN port 65535\n".utf8).write(to: ssh.logURL!)
+        ssh.executable = "/bin/sh"; ssh.arguments = ["-c", "printf %s \(shellQuote(warning)); exit 255"]
+        let session = TerminalSession(host: target, launch: ssh, settings: AppSettings(), directory: model.workingDirectory)
+        model.addSession(session); session.start()
+        try await wait { session.ended }
+        precondition(session.hostKeyFailure?.endpoint.hostID == gateway.id,
+                     "PTY child warning must identify the failed hop despite outer kex diagnostics")
+        precondition(!session.reconnecting && session.status.contains("reinstalled gateway"))
+        let unchanged = try Data(contentsOf: model.paths.knownHosts)
+        precondition(unchanged == old, "Detection cannot alter trust")
+        let context = try String(contentsOf: session.diagnosticURL!)
+        precondition(context.contains("\"host_key_changed\""))
+        for language in AppLanguage.allCases {
+            L10n.configure(language)
+            let view = NSHostingView(rootView: HostKeyRecoveryView(failure: session.hostKeyFailure!) {})
+            view.frame = NSRect(x: 0, y: 0, width: 540, height: 420)
+            view.layoutSubtreeIfNeeded()
+            precondition(view.fittingSize.width <= 540, "Recovery dialog must fit in both languages")
+        }
+        L10n.configure(.english)
+        model.closeAll()
+        print("PASS nested PTY key failure identifies gateway, stops retry, saves specific reason and renders bilingual recovery without changing trust")
     }
 
     @MainActor static func testSessionSwitching(_ model: AppModel) async throws {

@@ -45,6 +45,14 @@
 "Authentication method" = "Authentication method";
 "Auto refresh" = "Auto refresh";
 "Automatic reconnection stopped" = "Automatic reconnection stopped";
+"Server identity changed: {0}" = "Server identity changed: {0}";
+"Server Identity Changed" = "Server Identity Changed";
+"Review Changed Host Key…" = "Review Changed Host Key…";
+"Reset Saved Key and Reconnect" = "Reset Saved Key and Reconnect";
+"Reinstalling a server can change its SSH host key. Verify the new fingerprint through a trusted channel before resetting the saved key." = "Reinstalling a server can change its SSH host key. Verify the new fingerprint through a trusted channel before resetting the saved key.";
+"Only this server on this connection route will be reset. Reconnecting will ask you to confirm the new key; other saved keys will be kept." = "Only this server on this connection route will be reset. Reconnecting will ask you to confirm the new key; other saved keys will be kept.";
+"Saved host keys changed. Reconnect and review the current warning again." = "Saved host keys changed. Reconnect and review the current warning again.";
+"The old server key is no longer saved. Reconnect to verify its current identity." = "The old server key is no longer saved. Reconnect to verify its current identity.";
 "Background hex color" = "Background hex color";
 "Bash and Zsh support automatic interaction recording. Other shells support manual snapshots." = "Bash and Zsh support automatic interaction recording. Other shells support manual snapshots.";
 "Basic Information" = "Basic Information";
