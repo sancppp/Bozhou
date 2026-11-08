@@ -37,6 +37,7 @@ jobs:
         run: |
           bash Scripts/test_regressions.sh
           bash Scripts/test_native.sh
+          bash Scripts/test_metadata.sh
           python3 Scripts/test_install.py
       - name: Build and verify app
         run: |

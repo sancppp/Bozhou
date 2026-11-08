@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.3.0
+
+### Host information and optional ECS metadata
+
+- Summarize the operating system, CPU model and logical CPU count, and available memory at login in GiB; parse existing raw system information when loading older workspaces.
+- Add an optional NightHawk CLI extension for Volcengine ECS details and directly related network resources, using the existing local CLI and SSO login.
+- Verify instance, network interface and account associations, support explicit instance bindings, and show collection limits or partial failures.
+- Choose and reorder metadata fields for the workspace or individual hosts. Display enabled cloud metadata before the operating system in Quick Look.
+- Search system details, notes, jump hosts and all cached properties of enabled metadata extensions, including VPC information.
+
+### Session arrangement
+
+- Drag horizontal or vertical session tabs to reorder them.
+- Drag a tab over another terminal's left, right, top or bottom area to preview and create a two-pane split. Click a tab to return to a single pane.
+- Preserve sessions, scrollback and keyboard focus through rearrangement; remove the previous split menu.
+
+### Extension framework and reliability
+
+- Introduce a capability-based plugin registry with registration, activation, deactivation, workspace switching and unregistration. Keep NightHawk in its own module and document how to add plugins.
+- Cancel plugin work on disable or workspace changes and reject stale metadata results without overwriting newer host observations.
+- Refresh active history and pin searches when background records arrive, reject key-import results from a previous workspace, and limit host actions to visible selections.
+- Preserve visible OSC hyperlink text in recorded output and clear hidden terminal command targets when returning to the workspace.
+- Keep custom app output paths consistent across packaging, verification and installation, and link native regressions against current build dependencies.
+
 ## 1.2.1
 
 ### Reinstalled servers and changed SSH host keys
