@@ -19,9 +19,11 @@ let package = Package(
         .target(name: "BozhouCore", dependencies: ["CSQLite"], resources: [
             .copy("Resources/bash-preexec.sh"), .process("Resources/Localization")
         ]),
-        .executableTarget(name: "Bozhou", dependencies: ["BozhouCore", "SwiftTerm"]),
+        .target(name: "BozhouExtensions", dependencies: ["BozhouCore"]),
+        .target(name: "BozhouNightHawk", dependencies: ["BozhouCore", "BozhouExtensions"]),
+        .executableTarget(name: "Bozhou", dependencies: ["BozhouCore", "BozhouExtensions", "BozhouNightHawk", "SwiftTerm"]),
         .executableTarget(name: "BozhouAskPass", dependencies: ["BozhouCore"]),
         .executableTarget(name: "BozhouUpdater", dependencies: ["BozhouCore"]),
-        .executableTarget(name: "BozhouCoreTests", dependencies: ["BozhouCore"], path: "Tests/BozhouCoreTests")
+        .executableTarget(name: "BozhouCoreTests", dependencies: ["BozhouCore", "BozhouExtensions", "BozhouNightHawk"], path: "Tests/BozhouCoreTests")
     ]
 )

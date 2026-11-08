@@ -227,7 +227,7 @@ public final class InteractionRecorder {
     }
     public static func clean(_ string: String) -> String {
         string.replacingOccurrences(of: #"\x1B\[[0-?]*[ -/]*[@-~]"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"\x1B\][^\x07]*(?:\x07|\x1B\\)"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\x1B\][^\x07]*?(?:\x07|\x1B\\)"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "")
     }
 }

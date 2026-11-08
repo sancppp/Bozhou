@@ -130,6 +130,25 @@ final class CoreTests {
         XCTAssertEqual(captured[0].exitCode, 7)
         XCTAssertTrue(captured[0].truncated)
     }
+    func testRecorderPreservesOSCHyperlinkText() {
+        for terminator in ["\u{7}", "\u{1b}\\"] {
+            let content = "前\u{1b}]0;title\(terminator)文 " +
+                "\u{1b}]8;;https://example.test/路径\(terminator)\u{1b}[32m链接 🛶\u{1b}[0m" +
+                "\u{1b}]8;;\(terminator) 后\r\n" +
+                "\u{1b}]8;;https://example.test\(terminator)second\u{1b}]8;;\(terminator)"
+            let expected = "前文 链接 🛶 后\nsecond"
+            XCTAssertEqual(InteractionRecorder.clean(content), expected)
+            let recorder = InteractionRecorder(token: "links", hostID: nil, hostName: "fixture", sessionID: UUID())
+            var records: [Interaction] = []
+            recorder.onInteraction = { records.append($0) }
+            let stream = "\u{1b}]777;bozhou;links;command;bash;printf links\u{7}" +
+                content + "\u{1b}]777;bozhou;links;end;0\u{7}"
+            for byte in stream.utf8 { _ = recorder.feed([byte]) }
+            XCTAssertEqual(records.count, 1)
+            XCTAssertEqual(records.first?.output, expected)
+        }
+        XCTAssertEqual(InteractionRecorder.clean("\u{1b}]0;one\u{1b}\\A\u{1b}]0;two\u{7}B"), "AB")
+    }
     func testRecorderIgnoresForeignTokenAndFlushesOnDisconnect() {
         let recorder = InteractionRecorder(token: "ours", hostID: nil, hostName: "test", sessionID: UUID())
         var records: [Interaction] = []
@@ -460,5 +479,52 @@ final class CoreTests {
         XCTAssertEqual(legacy?.memory, "2G")
         XCTAssertEqual(try JSONDecoder().decode(SystemProfile.self, from: JSONEncoder().encode(parsed!)), parsed)
         XCTAssertEqual(interactions, 0)
+    }
+
+    func testSystemProfileSummaries() throws {
+        let os = """
+        NAME="Debian GNU/Linux"
+        VERSION_ID="12"
+        PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+        HOME_URL="https://www.debian.org/"
+        """
+        let cpu = """
+        Architecture: x86_64
+        CPU(s): 64
+        On-line CPU(s) list: 0-63
+        Model name: AMD EPYC 7R13 64-Core Processor
+        Thread(s) per core: 2
+        Core(s) per socket: 32
+        Socket(s): 1
+        Vulnerability Spectre v1: Mitigation
+        """
+        let memory = "MemTotal: 67108864 kB\nMemFree: 1048576 kB\nMemAvailable: 12582912 kB\nBuffers: 2048 kB"
+        let profile = SystemProfile(operatingSystem: os, kernel: "Linux x86_64", cpu: cpu, memory: memory)
+        XCTAssertEqual(profile.operatingSystem, "Debian GNU/Linux 12 (bookworm)")
+        XCTAssertEqual(profile.cpu, "AMD EPYC 7R13 64-Core Processor")
+        XCTAssertEqual(profile.cpuLogicalCount, 64)
+        XCTAssertEqual(profile.cpuSummary, "AMD EPYC 7R13 64-Core Processor · 64 logical CPUs")
+        XCTAssertEqual(profile.memory, "12.00 GiB")
+        let legacy: [String: Any] = ["collectedAt": 0, "operatingSystem": os, "cpu": cpu, "memory": memory, "kernel": "Linux"]
+        let decoded = try JSONDecoder().decode(SystemProfile.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertEqual(decoded.operatingSystem, profile.operatingSystem)
+        XCTAssertEqual(decoded.cpuSummary, profile.cpuSummary)
+        XCTAssertEqual(decoded.memory, profile.memory)
+        XCTAssertEqual(try JSONDecoder().decode(SystemProfile.self, from: JSONEncoder().encode(decoded)), decoded)
+        let mac = SystemProfile(operatingSystem: "ProductName: macOS\nProductVersion: 26.1\nBuildVersion: 25B",
+                                kernel: "Darwin", cpu: "Apple M4\n10", memory: """
+                                Mach Virtual Memory Statistics: (page size of 16384 bytes)
+                                Pages free: 65536.
+                                Pages inactive: 131072.
+                                Pages speculative: 65536.
+                                Pages purgeable: 65536.
+                                """)
+        XCTAssertEqual(mac.operatingSystem, "macOS 26.1")
+        XCTAssertEqual(mac.cpuSummary, "Apple M4 · 10 logical CPUs")
+        XCTAssertEqual(mac.memory, "4.00 GiB")
+        let absent = SystemProfile(operatingSystem: "ID=unknown", kernel: "", cpu: "Flags: unknown", memory: "hw.memsize: 17179869184")
+        XCTAssertTrue(absent.operatingSystem.isEmpty && absent.cpu.isEmpty && absent.memory.isEmpty)
+        XCTAssertEqual(SystemProfile(operatingSystem: #"PRETTY_NAME="Linux \"quoted\"""#, kernel: "", cpu: "", memory: "").operatingSystem, #"Linux "quoted""#)
+        XCTAssertEqual(SystemProfile(operatingSystem: "", kernel: "", cpu: "", memory: "MemAvailable: 0 kB").memory, "0.00 GiB")
     }
 }

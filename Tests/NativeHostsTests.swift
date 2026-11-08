@@ -32,6 +32,13 @@ struct NativeHostsTests {
             for child in view.subviews { if let result = find(type, in: child) { return result } }
             return nil
         }
+        func captureSelection(_ name: String) throws {
+            content.layoutSubtreeIfNeeded()
+            let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds)!
+            content.cacheDisplay(in: content.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])!.write(
+                to: URL(fileURLWithPath: ".runtime/logs/host-selection-\(name).png"))
+        }
         settle()
         var table = find(HostTableView.self, in: content)!
         precondition(table.numberOfRows == 1)
@@ -116,6 +123,14 @@ struct NativeHostsTests {
         settle()
         precondition(window.firstResponder === table)
         print("PASS native single click selects synchronously: \(Int(clickMS)) ms")
+        try captureSelection("visible")
+        model.search = "no-matching-host-fixture"
+        settle()
+        precondition(table.numberOfRows == 0 && table.selectedRow == -1)
+        try captureSelection("filtered")
+        model.search = ""
+        settle()
+        print("PASS filtering deselects hidden hosts; selected/filtered action-area renders saved")
         click(row: 1, count: 2)
         settle()
         precondition(model.selectedGroup == "NAT/成都")

@@ -195,12 +195,11 @@ struct SearchTextView: NSViewRepresentable {
             // Do not steal the first responder from the search field.
             if NSMaxRange(range) <= (view.string as NSString).length { view.scrollRangeToVisible(range) }
         }
-        coordinator.text = text; coordinator.query = query; coordinator.match = match; coordinator.fontSize = fontSize
+        coordinator.text = text; coordinator.match = match; coordinator.fontSize = fontSize
         coordinator.ranges = ranges
     }
     final class Coordinator {
         var text: String?
-        var query = ""
         var match = 0
         var fontSize: CGFloat = 0
         var ranges: [NSRange] = []

@@ -43,19 +43,22 @@ struct HostsPage: View {
         visit(model.selectedGroup, depth: 0)
         return result
     }
-    private var selectedRow: HostRow? { rows.first { $0.id == selection } }
-    private var selectedHost: Host? { model.hosts.first { "h:" + $0.id.uuidString == selection } }
+    private var selectedHost: Host? {
+        if listLayout { return rows.first { $0.id == selection }?.host }
+        return gridHosts.first { "h:" + $0.id.uuidString == selection }
+    }
     private var currentFolders: [String] { model.groups.filter { HostTree.parent($0) == model.selectedGroup }.sorted() }
     private var gridHosts: [Host] { model.filteredHosts.filter { !model.search.isEmpty || $0.group == model.selectedGroup } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SearchField(title: L10n.tr("Search name, hostname, address, username or tags"), text: $model.search,
+            SearchField(title: L10n.tr("Search hosts, system details or cloud metadata"), text: $model.search,
                         focusNotification: "BozhouFocusSearch")
             HStack {
                 Text(model.selectedGroup.isEmpty ? L10n.tr("All Hosts") : (model.selectedGroup as NSString).lastPathComponent)
                     .font(.system(size: 18, weight: .semibold))
                 Text(L10n.tr("Hosts: \(model.filteredHosts.count)")).font(.caption).foregroundStyle(.secondary)
+                if model.isSearchingHosts { ProgressView().controlSize(.small) }
                 Spacer()
                 Button { listLayout.toggle() } label: { Image(systemName: listLayout ? "square.grid.2x2" : "list.bullet") }.help(L10n.tr("Switch layout"))
                 Menu {
@@ -119,8 +122,15 @@ struct HostsPage: View {
                     else { model.createFolder(folderPath) }
                 }
             }
-            .onChange(of: selection) { _, _ in if preview.isVisible { preview.update(selectedHost, hosts: model.hosts) } }
-            .onChange(of: model.hosts) { _, _ in if preview.isVisible { preview.update(selectedHost, hosts: model.hosts) } }
+            .onChange(of: selection) { _, _ in
+                if preview.isVisible {
+                    updatePreview()
+                    if let selectedHost { model.metadata.request(selectedHost, priority: true) }
+                }
+            }
+            .onChange(of: model.hosts) { _, _ in updatePreview() }
+            .onChange(of: model.settings) { _, _ in updatePreview() }
+            .onChange(of: model.plugins.metadataProviders.map(\.id)) { _, _ in updatePreview() }
             .onChange(of: model.selectedGroup) { _, _ in preview.close() }
             .onChange(of: model.search) { _, _ in preview.close() }
             .onChange(of: listLayout) { _, _ in preview.close() }
@@ -131,7 +141,10 @@ struct HostsPage: View {
         HostListView(rows: rows, expanded: expanded, search: model.search,
                      selection: $selection, onMove: move, onOpen: open, onToggle: toggle, onPreview: showPreview, menu: nativeMenu)
             .overlay {
-                if rows.isEmpty { Text(L10n.tr("This folder is empty. Add a host or folder.")).foregroundStyle(.secondary).allowsHitTesting(false) }
+                if rows.isEmpty && !model.isSearchingHosts {
+                    Text(model.search.isEmpty ? L10n.tr("This folder is empty. Add a host or folder.") : L10n.tr("No matching hosts."))
+                        .foregroundStyle(.secondary).allowsHitTesting(false)
+                }
             }
     }
     private func nativeMenu(_ row: HostRow) -> NSMenu {
@@ -200,7 +213,15 @@ struct HostsPage: View {
         guard model.search.isEmpty else { return }
         model.setHostGroupExpanded(path, expanded: !expanded.contains(path))
     }
-    private func showPreview(_ host: Host) { preview.toggle(host, hosts: model.hosts, onMove: move) }
+    private func showPreview(_ host: Host) {
+        preview.toggle(host, hosts: model.hosts, settings: model.settings, providers: model.plugins.metadataProviders, onMove: move)
+        if preview.isVisible { model.metadata.request(host, priority: true) }
+    }
+    private func updatePreview() {
+        if preview.isVisible {
+            preview.update(selectedHost, hosts: model.hosts, settings: model.settings, providers: model.plugins.metadataProviders)
+        }
+    }
     private func open(_ row: HostRow) {
         if let host = row.host { model.connect(host) }
         if let folder = row.folder { model.selectedGroup = folder; selection = nil }

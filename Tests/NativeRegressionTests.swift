@@ -5,6 +5,7 @@ import BozhouCore
 @main
 struct NativeRegressionTests {
     @MainActor static func main() async throws {
+        setbuf(stdout, nil)
         _ = NSApplication.shared
         // Keep bindings alive exactly as a native text field's deferred callback does.
         let first = LocalForward(localPort: 10001)
@@ -29,6 +30,7 @@ struct NativeRegressionTests {
         print("PASS port-forward bindings: removed row, late read/write, shifted row, reorder, remove all")
 
         let model = try AppModel()
+        try testIdentityImportScope(model)
         let directory = model.paths.sessions.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let launch = SSHLaunch(executable: "/bin/sleep", arguments: ["20"], environment: [:],
@@ -56,6 +58,27 @@ struct NativeRegressionTests {
                      "A cancelled connection must not publish its late error")
         print("PASS cancelled SFTP task cannot overwrite current state")
         try await testLocalization(model)
+    }
+
+    @MainActor static func testIdentityImportScope(_ model: AppModel) throws {
+        let previousStore = try Store(url: model.paths.root.appendingPathComponent("previous-workspace.sqlite"))
+        let key = Identity(name: "import fixture", privateKeyPath: "", fingerprint: "SHA256:fixture", group: "Import/Fixture")
+        let before = model.identities
+        let toast = model.toast
+        try model.finishIdentityImport(key, from: previousStore)
+        precondition(model.identities == before && model.toast == toast, "A stale import must not affect the active workspace")
+        let currentKeys = try model.store.list(Identity.self), previousKeys = try previousStore.list(Identity.self)
+        precondition(currentKeys == before)
+        precondition(previousKeys.isEmpty, "A stale completion must not reopen the old workspace")
+        model.showWorkspace(.hosts)
+        try model.finishIdentityImport(key, from: model.store)
+        precondition(model.identities.contains { $0.id == key.id }, "Changing page must not cancel a valid workspace import")
+        var duplicate = key; duplicate.id = UUID()
+        try model.finishIdentityImport(duplicate, from: model.store)
+        precondition(model.identities.filter { $0.fingerprint == key.fingerprint }.count == 1)
+        try model.store.delete(Identity.self, id: key.id)
+        try model.reload()
+        print("PASS identity import accepts its original workspace, rejects stale stores and deduplicates fingerprints")
     }
 
     @MainActor static func testLocalization(_ model: AppModel) async throws {
@@ -116,7 +139,7 @@ struct NativeRegressionTests {
         precondition(!session.reconnecting && session.status.contains("reinstalled gateway"))
         let unchanged = try Data(contentsOf: model.paths.knownHosts)
         precondition(unchanged == old, "Detection cannot alter trust")
-        let context = try String(contentsOf: session.diagnosticURL!)
+        let context = try String(contentsOf: session.diagnosticURL!, encoding: .utf8)
         precondition(context.contains("\"host_key_changed\""))
         for language in AppLanguage.allCases {
             L10n.configure(language)
@@ -221,6 +244,110 @@ struct NativeRegressionTests {
         terminals[0].feed(text: "\u{1b}[?1049l")
         check("alternate screen")
         print("PASS alternate screen, cursor and application mode survive remounting and unchanged settings")
+
+        // Exercise the registered native destinations inside the real SwiftUI hierarchy.
+        model.selectSession(sessions[0].id)
+        try await settle()
+        func descendants<T: NSView>(_ view: NSView, of type: T.Type) -> [T] {
+            (view as? T).map { [$0] } ?? view.subviews.flatMap { descendants($0, of: type) }
+        }
+        let drag = SessionDraggingFixture(window: window)
+        defer { drag.draggingPasteboard.releaseGlobally() }
+        func beginDrag() {
+            model.draggedSession = sessions[1].id
+            drag.draggingPasteboard.clearContents()
+            drag.draggingPasteboard.setString(model.sessionDragScope.uuidString + "/" + sessions[1].id.uuidString, forType: SessionDrag.type)
+        }
+        for placement in SessionTabPlacement.allCases {
+            model.settings.tabPlacement = placement
+            // A bare NSHostingView does not install SwiftUI's window toolbar.
+            // Mount the real horizontal strip explicitly; the app-hosted toolbar has its own probe.
+            var horizontalTabs: NSView?
+            if placement == .horizontal {
+                let strip = NSHostingView(rootView: HorizontalSessionTabs(width: 680, onRename: { _ in }).environmentObject(model))
+                strip.frame = NSRect(x: 0, y: 0, width: 680, height: 34)
+                content.addSubview(strip)
+                horizontalTabs = strip
+            }
+            defer { horizontalTabs?.removeFromSuperview() }
+            beginDrag()
+            try await settle()
+            let tab = descendants(horizontalTabs ?? content, of: SessionTabDragHandle.Source.self)
+                .first { $0.sessionID == sessions[0].id }!
+            for after in [false, true] {
+                let point = placement == .horizontal
+                    ? NSPoint(x: after ? tab.bounds.width - 2 : 2, y: 10)
+                    : NSPoint(x: 10, y: after ? tab.bounds.height - 2 : 2)
+                drag.draggingLocation = tab.convert(point, to: nil)
+                precondition(tab.draggingEntered(drag) == .move && tab.performDragOperation(drag))
+                precondition(model.sessions.map(\.id) == (after ? sessions : sessions.reversed()).map(\.id))
+                precondition(model.activeSession == sessions[0].id && model.splitSession == nil,
+                             "Reordering must not activate the dragged tab or split")
+                try await settle()
+                check("native \(placement) reorder")
+            }
+            model.draggedSession = nil
+        }
+        model.settings.tabPlacement = .vertical
+        for edge in SessionSplitEdge.allCases {
+            model.selectSession(sessions[0].id)
+            beginDrag()
+            try await settle()
+            let destination = descendants(content, of: SessionSplitDropTarget.DropView.self).first { $0.target == sessions[0].id }!
+            let size = destination.bounds.size
+            let point: CGPoint
+            switch edge {
+            case .left: point = CGPoint(x: 3, y: size.height / 2)
+            case .right: point = CGPoint(x: size.width - 3, y: size.height / 2)
+            case .top: point = CGPoint(x: size.width / 2, y: 3)
+            case .bottom: point = CGPoint(x: size.width / 2, y: size.height - 3)
+            }
+            drag.draggingLocation = destination.convert(point, to: nil)
+            var hovered: SessionSplitEdge?
+            let originalHover = destination.onHover
+            destination.onHover = { hovered = $0; originalHover?($0) }
+            precondition(destination.draggingEntered(drag) == .move && hovered == edge)
+            precondition(model.splitSession == nil, "Hover only previews; it cannot create a split")
+            try await settle()
+            if let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                content.cacheDisplay(in: content.bounds, to: bitmap)
+                try bitmap.representation(using: .png, properties: [:])?.write(to:
+                    URL(fileURLWithPath: ".runtime/logs/session-drop-\(edge).png"))
+            }
+            precondition(destination.prepareForDragOperation(drag) && destination.performDragOperation(drag))
+            model.draggedSession = nil
+            try await settle()
+            precondition(model.splitVertical == edge.vertical && model.commandSession?.id == sessions[1].id)
+            precondition(window.firstResponder === sessions[1].terminal, "The dropped session must receive keyboard focus")
+            let firstRect = sessions[0].terminal.convert(sessions[0].terminal.bounds, to: content)
+            let droppedRect = sessions[1].terminal.convert(sessions[1].terminal.bounds, to: content)
+            precondition(!firstRect.intersects(droppedRect))
+            // AppKit's hosting root is unflipped; compare screen-relative placement accordingly.
+            if edge == .left { precondition(droppedRect.midX < firstRect.midX) }
+            if edge == .right { precondition(droppedRect.midX > firstRect.midX) }
+            let topFirst = content.isFlipped ? droppedRect.midY < firstRect.midY : droppedRect.midY > firstRect.midY
+            if edge == .top { precondition(topFirst) }
+            if edge == .bottom { precondition(!topFirst) }
+            check("native \(edge) drop")
+        }
+        model.selectSession(sessions[0].id)
+        beginDrag()
+        try await settle()
+        let destination = descendants(content, of: SessionSplitDropTarget.DropView.self).first!
+        drag.draggingLocation = destination.convert(CGPoint(x: 2, y: 100), to: nil)
+        precondition(destination.draggingEntered(drag) == .move)
+        destination.draggingExited(drag)
+        model.draggedSession = nil
+        precondition(!destination.performDragOperation(drag), "A cancelled drag cannot be accepted later")
+        try await settle()
+        precondition(descendants(content, of: SessionSplitDropTarget.DropView.self).isEmpty && model.splitSession == nil)
+        beginDrag()
+        drag.draggingPasteboard.setString(UUID().uuidString + "/" + sessions[1].id.uuidString, forType: SessionDrag.type)
+        precondition(SessionDrag.session(from: drag.draggingPasteboard, model: model) == nil, "Foreign workspace payload accepted")
+        model.draggedSession = nil
+        model.settings.tabPlacement = .horizontal
+        check("cancel and foreign payload")
+        print("PASS native tab reorder, four animated drop directions, focus, cancel and foreign drag rejection retain PTY/history")
 
         weak var releasedSession: TerminalSession?
         weak var releasedTerminal: RecordingTerminalView?
@@ -399,8 +526,21 @@ struct NativeRegressionTests {
         precondition(other.terminal.font.pointSize == 19)
         precondition(!session.terminal.performKeyEquivalent(with: event), "An unfocused terminal cannot consume the shortcut")
         window.orderOut(nil)
+        for page in [Page.hosts, .settings] {
+            model.activeSession = session.id; model.splitSession = other.id; model.focusedSession = other.id
+            model.draggedSession = other.id
+            model.showWorkspace(page)
+            precondition(model.page == page && model.activeSession == nil && model.splitSession == nil &&
+                         model.focusedSession == nil && model.draggedSession == nil && model.commandSession == nil)
+        }
+        // Defensive routing must also reject legacy/incomplete navigation state.
+        model.splitSession = other.id; model.focusedSession = other.id
+        precondition(model.commandSession == nil, "Hidden split sessions cannot receive terminal commands")
+        model.selectSession(session.id)
+        precondition(model.commandSession === session && model.splitSession == nil)
         model.closeAll()
         print("PASS font shortcuts target the focused pane, retain zoom across theme changes and clamp to 10–36 pt")
+        print("PASS workspace navigation clears split/drag focus and rejects hidden terminal command routing")
 
         let field = HostNameTextField(labelWithString: "")
         field.font = .systemFont(ofSize: 12)
@@ -416,4 +556,27 @@ struct NativeRegressionTests {
         precondition(field.stringValue.hasSuffix("(...fbqnpj)") && field.toolTip == field.hostName.full)
         print("PASS native host labels fit full names, then hostname suffixes, preserving tooltips")
     }
+}
+
+@MainActor
+private final class SessionDraggingFixture: NSObject, NSDraggingInfo {
+    let draggingDestinationWindow: NSWindow?
+    let draggingPasteboard = NSPasteboard.withUniqueName()
+    var draggingLocation = NSPoint.zero
+    var draggedImageLocation: NSPoint { draggingLocation }
+    nonisolated var draggedImage: NSImage? { nil }
+    var draggingSourceOperationMask: NSDragOperation { .move }
+    var draggingSource: Any? { nil }
+    var draggingSequenceNumber: Int { 1 }
+    var draggingFormation: NSDraggingFormation = .none
+    var animatesToDestination = false
+    var numberOfValidItemsForDrop = 1
+    var springLoadingHighlight: NSSpringLoadingHighlight { .none }
+    init(window: NSWindow) { draggingDestinationWindow = window }
+    func slideDraggedImage(to screenPoint: NSPoint) {}
+    nonisolated override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? { nil }
+    func resetSpringLoading() {}
+    func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions, for view: NSView?,
+                                classes classArray: [AnyClass], searchOptions: [NSPasteboard.ReadingOptionKey: Any],
+                                using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
 }

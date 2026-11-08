@@ -29,6 +29,13 @@ func XCTUnwrap<T>(_ value: T?) throws -> T {
 @main
 struct TestRunner {
     static func main() async {
+        if let index = CommandLine.arguments.firstIndex(of: "--verify-metadata"), CommandLine.arguments.count > index + 2 {
+            do {
+                try await MetadataLiveProbe.run(input: URL(fileURLWithPath: CommandLine.arguments[index + 1]),
+                                                output: URL(fileURLWithPath: CommandLine.arguments[index + 2]))
+            } catch { fail(error.localizedDescription) }
+            exit(failures == 0 ? 0 : 1)
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--verify-update-feed"), CommandLine.arguments.count > index + 1 {
             do { try await UpdateNetworkTests.verifyPublicRelease(at: URL(fileURLWithPath: CommandLine.arguments[index + 1])) }
             catch { fail(error.localizedDescription) }
@@ -56,6 +63,7 @@ struct TestRunner {
         }
         let test = CoreTests()
         let cases: [(String, () throws -> Void)] = [
+            ("扩展兼容、字段持久化、并发凭据保护与过期结果拒绝", test.testMetadataPersistence),
             ("备份往返、WAL、引用、权限与损坏文件拦截", test.testBackupRoundTripAndValidation),
             ("更新版本比较、资源匹配和 SHA-256 校验", test.testReleaseVersionsAssetsAndChecksums),
             ("更新 ZIP 安全验证与应用替换失败回滚", test.testUpdateArchiveAndRollback),
@@ -70,6 +78,7 @@ struct TestRunner {
             ("Kerberos 配置由真实 OpenSSH 解析", test.testKerberosConfig),
             ("循环引用与输入注入拦截", test.testRejectsCyclesAndInjection),
             ("OSC 逐字节分片、命令和输出限额", test.testRecorderEveryByteBoundaryAndOutputCap),
+            ("OSC BEL/ST 超链接清理保留 Unicode 可见文字", test.testRecorderPreservesOSCHyperlinkText),
             ("忽略其他会话标记并保留中断输出", test.testRecorderIgnoresForeignTokenAndFlushesOnDisconnect),
             ("输出尾部环形缓存、跨界分片与快照隔离", test.testRecorderTailAcrossWrapsAndChunks),
             ("异常上下文脱敏、权限、体积和保留数量", test.testTerminalDiagnosticPersistence),
@@ -81,7 +90,8 @@ struct TestRunner {
             ("结构化日志过滤与旧日志读取", test.testStructuredLogFilteringAndLegacyRead),
             ("文件夹路径、旧主机迁移与转发隔离", test.testFoldersMetadataAndForwardingMigration),
             ("收藏内容去重与 WAL 数据迁移", test.testPinDeduplicationAndWorkspaceCopy),
-            ("真实只读系统信息采集与协议解析", test.testReadOnlySystemProbe)
+            ("真实只读系统信息采集与协议解析", test.testReadOnlySystemProbe),
+            ("系统信息摘要、逻辑核数、可用内存与原始缓存兼容", test.testSystemProfileSummaries)
         ]
         for (name, run) in cases {
             let before = failures
@@ -89,6 +99,9 @@ struct TestRunner {
             print("\(failures == before ? "PASS" : "FAIL") \(name)")
         }
         do { try await UpdateNetworkTests.run() } catch { fail("Update transport: \(error.localizedDescription)") }
+        do { try await MetadataTests.run() } catch { fail("Metadata: \(error.localizedDescription)") }
+        do { try await PluginTests.run() } catch { fail("Plugins: \(error.localizedDescription)") }
+        await HostSearchTests.run()
         if CommandLine.arguments.contains("--integration") {
             do { try await IntegrationTests.run() } catch { fail("集成测试：\(error)") }
         }

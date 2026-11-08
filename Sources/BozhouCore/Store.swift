@@ -73,6 +73,41 @@ public final class Store: @unchecked Sendable {
                     [password, String(Date().timeIntervalSince1970), hostID.uuidString])
     }
 
+    /// Re-read under the database transaction; never replace credentials with a background snapshot.
+    @discardableResult
+    public func saveMetadata(_ snapshot: MetadataSnapshot, hostID: UUID) throws -> Bool {
+        var saved = false
+        try transaction {
+            guard let row = try query("SELECT payload FROM hosts WHERE id=?", [hostID.uuidString]).first else { return }
+            let host = try decoder.decode(Host.self, from: Data(row[0].utf8))
+            guard snapshot.subjectKey == MetadataSubject(host: host, providerID: snapshot.providerID).key else { return }
+            var snapshots = host.metadataSnapshots
+            snapshots[snapshot.providerID] = snapshot
+            let json = String(decoding: try encoder.encode(snapshots), as: UTF8.self)
+            try execute("UPDATE hosts SET payload=json_set(payload,'$.metadataSnapshots',json(?)) WHERE id=?",
+                        [json, hostID.uuidString])
+            saved = true
+        }
+        return saved
+    }
+
+    /// Host editor drafts can predate a CLI refresh or successful SSH login.
+    public func saveHostPreservingObservations(_ draft: Host, preparing: () throws -> Void = {}) throws {
+        try transaction {
+            try preparing()
+            var host = draft
+            if let row = try query("SELECT payload FROM hosts WHERE id=?", [host.id.uuidString]).first {
+                let latest = try decoder.decode(Host.self, from: Data(row[0].utf8))
+                host.systemProfile = latest.systemProfile
+                host.lastLoginAt = latest.lastLoginAt
+                host.metadataSnapshots = latest.metadataSnapshots.filter {
+                    $0.value.subjectKey == MetadataSubject(host: host, providerID: $0.key).key
+                }
+            } else { host.metadataSnapshots = [:] }
+            try save(host)
+        }
+    }
+
     public func clearHistory() throws { try execute("DELETE FROM history") }
     public func trimHistory(limit: Int) throws {
         try execute("DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY updated DESC LIMIT ?)", [String(max(0, limit))])

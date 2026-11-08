@@ -21,6 +21,7 @@
 ## Features
 
 - **Organize hosts:** nested folders, tags, favorites, search and sorting. Custom names are stored separately from the hostname, OS, kernel, CPU and memory collected at login.
+- **Extend host information:** optional Volcengine ECS metadata through your local NightHawk CLI, with per-property visibility and ordering.
 - **Organize keys:** independent nested folders, rename and move operations, and saved expansion state. Moving a key preserves host references and its original file location.
 - **Build connection chains:** passwords, private keys, SSH Agent and Kerberos, with up to 12 jump hosts. Each hop keeps its own username, port and authentication method.
 - **Connect across networks:** SOCKS5, HTTP CONNECT and local port forwarding. Confirm each host fingerprint on first connection; changed fingerprints block connections.
@@ -33,6 +34,20 @@ Bozhou uses macOS `/usr/bin/ssh` with a separate configuration for each connecti
 Hosts with the same IP and port behind different jump chains or network proxies can connect simultaneously. Fingerprints are scoped to the full route, including intermediate jumps, and shared by SSH and SFTP on that route. When upgrading from address-only fingerprint storage, routed hosts require confirmation once more; direct connections retain their existing trust records. There is no need to delete the old fingerprint database.
 
 After a server reinstall changes its SSH key, choose **Review Changed Host Key…** in the failed terminal, SFTP or server-to-server connection. The review names the actual failed destination or jump host and shows its new fingerprint. Verify it through a trusted channel, then reset the saved key and reconnect to confirm the new key. Other hosts and connection routes retain their saved keys.
+
+### Optional ECS metadata extension
+
+Enable **Settings → Extensions → Volcengine ECS metadata · NightHawk** after installing and signing in to NightHawk locally. Bozhou discovers `nighthawk-cli` in common local installation directories and `PATH`; you can also choose its executable. Select the environments you use (`cn` and `sdv` initially). Each query passes its environment explicitly and uses your existing local SSO login.
+
+The extension queries saved hosts on startup, after a successful SSH login, when opening details or Quick Look, and when manually refreshed. Results are cached for 15 minutes. Automatic matching uses an ECS ID from the name/hostname (including `iv-` hostnames) and verifies the instance's ENI addresses and account. For hosts without an identifiable ID, DNS addresses, or conflicting matches, enter a verified **ECS instance ID** under **Host Details → Volcengine · NightHawk → Instance Binding**. Optional region, expected account and environment constrain each host independently; private IPs alone are never treated as unique across accounts or VPCs.
+
+An attached ENI can belong to another account. Bozhou verifies its `device_id` against the ECS and checks related resources against the account recorded by that attachment. The expected account in the host binding applies to the ECS itself.
+
+All returned ECS detail properties and ECS list columns are available, including unknown nested properties added by the API. The extension also collects directly attached ENI, VPC, subnet and EIP details, their exposed tags, and selected security group, route, ACL and quota lists. It does not enumerate every host in a VPC. ECS tags appear only if the ECS schema exposes them; tags belonging to an ENI, VPC or EIP retain their resource labels. Query failures and collection limits are displayed with the collection time.
+
+Use **Visible Fields & Order…** in Settings to choose and reorder properties for the workspace. **Customize fields for this host** in Host Details overrides that layout; save the host to retain the override. New properties are visible by default. Cached metadata, bindings and layouts are included in local backups. Turning off the extension cancels queued and active queries and hides its information; SSH remains independent.
+
+NightHawk is maintained in its own Swift module. The plugin framework supports registration, activation, deactivation, workspace changes and unregistration, with capabilities independent of metadata. See [plugin development](PLUGIN_DEVELOPMENT.md) for the interfaces and registration steps. AI integrations are not included.
 
 ## Installation
 
@@ -77,6 +92,10 @@ Quit Bozhou before installing. The installer defaults to `/Applications`, backs 
 Snippets insert text into the terminal; review it before executing. Automatic reconnection retries after 5, 10, 30, 60 and 120 seconds, then requires manual reconnection. It starts a new remote shell without replaying commands.
 
 Switching tabs, returning to the workspace or changing split layouts retains existing sessions and scrollback. Background output continues to arrive. Scrollback has a capacity limit; clearing the screen, closing a session or reconnecting clears or replaces terminal content.
+
+Drag a session tab within either tab bar to reorder it. To split, keep the current session visible and drag another tab over the left, right, top or bottom of its terminal. The highlighted half previews the destination; release to create a two-pane split. Dragging within an existing split rearranges or replaces its two visible sessions; other sessions remain in the tab bar. Click a tab to return to a single pane.
+
+Host details summarize the OS name, CPU model and logical CPU count, and available memory at login in GiB. Linux uses `MemAvailable`; macOS sums free, inactive and speculative VM pages. Search includes these details, notes, jump hosts and all cached properties of enabled metadata extensions, including VPCs. Hiding a metadata field affects its display, while disabling the extension removes its properties from search.
 
 Right-click a tab to give that session a custom name or restore its default name. Horizontal tabs shrink as sessions are added, preserving the last six hostname characters; when they reach their minimum width, scroll horizontally or use **All Sessions**. Choose **Vertical Tabs** from the toolbar's **Tab Bar** menu or Settings to show sessions below the workspace navigation. The layout preference is saved per workspace.
 

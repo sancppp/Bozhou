@@ -92,7 +92,7 @@ struct RootView: View {
     @ToolbarContentBuilder
     private var titlebar: some ToolbarContent {
         ToolbarItem(id: "workspace", placement: .navigation) {
-            Button { model.activeSession = nil; model.splitSession = nil } label: {
+            Button { model.showWorkspace() } label: {
                 HStack(spacing: 7) { BrandMark(size: 20); Text(L10n.tr("Bozhou")).font(.system(size: 13, weight: .semibold)) }
                     .padding(.horizontal, 10).frame(height: 32, alignment: .center)
                     .background(model.activeSession == nil ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 9))
@@ -114,27 +114,10 @@ struct RootView: View {
             if model.sessions.count > 2 {
                 Menu {
                     ForEach(model.sessions) { session in
-                        SessionMenuButton(session: session) { model.activeSession = session.id; model.splitSession = nil }
+                        SessionMenuButton(session: session) { model.selectSession(session.id) }
                     }
                 } label: { Label(L10n.tr("All Sessions"), systemImage: "rectangle.stack").frame(height: 32) }
                     .menuStyle(.borderlessButton).help(L10n.tr("Switch session"))
-            }
-        }.flatToolbarItem()
-        ToolbarItem(id: "split", placement: .primaryAction) {
-            if let active = model.active {
-                Menu {
-                    ForEach([false, true], id: \.self) { vertical in
-                        Menu(vertical ? L10n.tr("Split Top and Bottom") : L10n.tr("Split Left and Right")) {
-                            Button(L10n.tr("New Local Terminal")) { split(vertical: vertical) { model.localTerminal() } }
-                            if let host = active.host { Button(L10n.tr("New Connection to This Host")) { split(vertical: vertical) { model.connect(host) } } }
-                            ForEach(model.sessions.filter { $0.id != active.id }) { other in
-                                SessionMenuButton(session: other) { model.splitVertical = vertical; model.splitSession = other.id }
-                            }
-                        }
-                    }
-                    if model.splitSession != nil { Button(L10n.tr("Close Split")) { model.splitSession = nil } }
-                } label: { Label(L10n.tr("Split"), systemImage: "rectangle.split.2x1").frame(height: 32) }
-                    .menuStyle(.borderlessButton).fixedSize()
             }
         }.flatToolbarItem()
         ToolbarItem(id: "tab-layout", placement: .primaryAction) {
@@ -155,13 +138,6 @@ struct RootView: View {
             } label: { Image(systemName: "plus").frame(width: 26, height: 32).contentShape(Rectangle()) }
                 .menuStyle(.borderlessButton).fixedSize().help(L10n.tr("New"))
         }.flatToolbarItem()
-    }
-    private func split(vertical: Bool, create: () -> Void) {
-        let original = model.activeSession
-        create()
-        if model.activeSession != original {
-            model.splitSession = model.activeSession; model.activeSession = original; model.splitVertical = vertical
-        }
     }
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -186,7 +162,7 @@ struct RootView: View {
         }.padding(8).frame(width: verticalTabs ? 220 : 175).background(Color(nsColor: .windowBackgroundColor))
     }
     private func pageButton(_ page: Page) -> some View {
-                Button { model.activeSession = nil; model.splitSession = nil; model.page = page } label: {
+                Button { model.showWorkspace(page) } label: {
                     HStack(spacing: 12) {
                         Image(systemName: page.symbol).font(.system(size: 15, weight: .medium)).frame(width: 20)
                         Text(page.title).font(.system(size: 13, weight: model.activeSession == nil && model.page == page ? .semibold : .regular))

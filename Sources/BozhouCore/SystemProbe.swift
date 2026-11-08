@@ -18,7 +18,7 @@ public enum SystemProbe {
             fi
             printf '\\n[memory]\\n'
             if [ -r /proc/meminfo ]; then head -n 5 /proc/meminfo
-            elif command -v sysctl >/dev/null 2>&1; then sysctl hw.memsize; fi
+            elif command -v vm_stat >/dev/null 2>&1; then vm_stat; fi
           } 2>/dev/null | head -c 24000 | base64 | tr -d '\\r\\n'
         )
         printf '\\033]777;bozhou;\(token);system;%s\\007' "$bz_info"

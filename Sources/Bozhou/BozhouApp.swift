@@ -35,7 +35,7 @@ struct BozhouApp: App {
     var body: some Scene {
         Window(L10n.tr("Bozhou"), id: "main") {
             RootView().environmentObject(model).environment(\.locale, L10n.language.locale)
-                .onAppear { delegate.model = model; model.updater.checkOnLaunch() }
+                .onAppear { delegate.model = model; model.updater.checkOnLaunch(); model.startPlugins() }
         }.defaultSize(width: 1100, height: 720)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
@@ -45,7 +45,7 @@ struct BozhouApp: App {
                 Button(L10n.tr("New Host")) { model.editorHost = Host() }.keyboardShortcut("n")
                 Button(L10n.tr("New Local Terminal")) { model.localTerminal() }.keyboardShortcut("t")
                 Button(L10n.tr("Search Hosts")) {
-                    model.activeSession = nil; model.page = .hosts
+                    model.showWorkspace(.hosts)
                     DispatchQueue.main.async { NotificationCenter.default.post(name: .init("BozhouFocusSearch"), object: nil) }
                 }.keyboardShortcut("f", modifiers: [.command, .shift])
             }
@@ -69,7 +69,7 @@ struct BozhouApp: App {
                 ForEach(model.hosts.filter(\.favorite)) { host in Button(host.displayName.full) { model.connect(host) } }
             }
             CommandGroup(replacing: .appSettings) {
-                Button(L10n.tr("Settings…")) { model.activeSession = nil; model.page = .settings }.keyboardShortcut(",")
+                Button(L10n.tr("Settings…")) { model.showWorkspace(.settings) }.keyboardShortcut(",")
             }
             CommandGroup(replacing: .appInfo) {
                 Button(L10n.tr("About Bozhou")) { showAboutPanel() }

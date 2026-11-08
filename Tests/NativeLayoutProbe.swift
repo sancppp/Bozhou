@@ -123,6 +123,7 @@ enum NativeLayoutProbe {
         model.splitSession = nil; model.activeSession = nil; model.page = .hosts
         if let hostname = model.hosts.compactMap({ $0.systemProfile?.hostname }).first {
             model.search = hostname
+            try wait(5) { !model.isSearchingHosts }
             try check(!model.filteredHosts.isEmpty, "Hostname search failed")
             try capture("hostname-search")
             model.search = ""

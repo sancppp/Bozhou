@@ -160,6 +160,25 @@ struct NativeTitlebarProbe: App {
             try await capture("search-" + page.rawValue)
             print("PASS \(page.rawValue): native typing, filtering and search rendering")
         }
+        for page in [Page.history, .pins] {
+            model.showWorkspace(page)
+            let query = "late-arrival-\(page.rawValue)"
+            try await find(query)
+            func matchingOutput() -> NSTextView? {
+                descendants(frame).compactMap { $0 as? NSTextView }
+                    .first { !$0.isFieldEditor && $0.string == query }
+            }
+            try check(matchingOutput() == nil, "The late arrival fixture already exists")
+            let arrival = Interaction(hostName: "Background fixture", sessionID: UUID(), shell: "zsh",
+                                      command: "printf result", output: query)
+            if page == .history { model.record(arrival) }
+            else { model.pin(arrival) }
+            let deadline = Date().addingTimeInterval(5)
+            while matchingOutput() == nil, Date() < deadline { try await settle() }
+            try check(matchingOutput() != nil, "\(page): unchanged search failed to reveal a newly added record")
+            try check((window.firstResponder as? NSTextView)?.isFieldEditor == true, "A background result stole search focus")
+            print("PASS \(page): unchanged search updates when a background record arrives")
+        }
         model.page = .logs
         try await settle()
         if let segmented = descendants(frame).compactMap({ $0 as? NSSegmentedControl }).first {
@@ -190,7 +209,7 @@ struct NativeTitlebarProbe: App {
         let visible = Set((window.toolbar?.visibleItems ?? []).map {
             $0.itemIdentifier.rawValue.hasPrefix("tabs-") ? "tabs" : $0.itemIdentifier.rawValue
         })
-        try check(["tabs", "sessions", "split", "tab-layout", "new"].allSatisfy { visible.contains($0) },
+        try check(["tabs", "sessions", "tab-layout", "new"].allSatisfy { visible.contains($0) } && !visible.contains("split"),
                   "Toolbar hid a tab strip or control in its overflow menu: \(visible)")
         for _ in 0..<4 { model.localTerminal(); try await settle() }
         try await capture("toolbar-eight-sessions-940")

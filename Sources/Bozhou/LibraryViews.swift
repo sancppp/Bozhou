@@ -79,6 +79,7 @@ struct IdentitiesPage: View {
         let candidate = url.path.hasSuffix(".pub") ? String(url.path.dropLast(4)) : url.path
         let privatePath = FileManager.default.isReadableFile(atPath: candidate) ? candidate : ""
         let group = model.selectedIdentityGroup
+        let source = model.store
         importing = true
         Task {
             let key = await Task.detached {
@@ -94,11 +95,7 @@ struct IdentitiesPage: View {
                 }
                 return Identity(name: URL(fileURLWithPath: candidate).lastPathComponent, privateKeyPath: privatePath, publicKey: pub, fingerprint: fingerprint, group: group)
             }.value
-            model.perform {
-                guard !key.fingerprint.isEmpty else { throw BozhouError.invalid(L10n.tr("Could not recognize the SSH key. Check the selected file.")) }
-                if model.identities.contains(where: { $0.fingerprint == key.fingerprint }) { model.notify(L10n.tr("This key has already been imported")); return }
-                try model.saveIdentity(key); model.notify(L10n.tr("Key imported"))
-            }
+            model.perform { try model.finishIdentityImport(key, from: source) }
             importing = false
         }
     }
@@ -138,7 +135,7 @@ struct SnippetsPage: View {
                                 if !model.sessions.filter({ !$0.ended }).isEmpty {
                                     Menu(L10n.tr("Insert into Terminal")) {
                                         ForEach(model.sessions.filter { !$0.ended }) { session in
-                                            Button(session.displayName.full) { model.activeSession = session.id; session.send(snippet.command) }
+                                            Button(session.displayName.full) { model.selectSession(session.id); session.send(snippet.command) }
                                         }
                                     }.fixedSize()
                                 }
@@ -432,6 +429,7 @@ struct PreferencesView: View {
                     }
                     Text(L10n.tr("The database contains host passwords in plain text. Host fingerprints and logs are also stored here. Private keys stay in their original locations.")).font(.caption).foregroundStyle(.secondary)
                 }
+                PluginSettingsView()
                 Section(L10n.tr("Software Update")) {
                     UpdateSettingsView(updater: model.updater)
                 }

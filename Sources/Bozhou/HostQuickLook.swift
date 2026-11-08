@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import BozhouCore
+import BozhouExtensions
 
 final class HostPreviewPanel: NSPanel {
     var onMove: ((MoveCommandDirection) -> Void)?
@@ -24,7 +25,8 @@ final class HostPreviewPanel: NSPanel {
 final class HostPreviewController: ObservableObject {
     private(set) var panel: HostPreviewPanel?
     var isVisible: Bool { panel?.isVisible == true }
-    func toggle(_ host: Host, hosts: [Host], onMove: @escaping (MoveCommandDirection) -> Void) {
+    func toggle(_ host: Host, hosts: [Host], settings: AppSettings = AppSettings(),
+                providers: [any HostMetadataProvider] = [], onMove: @escaping (MoveCommandDirection) -> Void) {
         if isVisible { close(); return }
         let panel = panel ?? HostPreviewPanel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 480),
                                               styleMask: [.titled, .closable, .resizable, .utilityWindow],
@@ -35,15 +37,15 @@ final class HostPreviewController: ObservableObject {
         panel.isFloatingPanel = true
         panel.minSize = NSSize(width: 420, height: 320)
         panel.onMove = onMove
-        update(host, hosts: hosts)
+        update(host, hosts: hosts, settings: settings, providers: providers)
         panel.center()
         panel.makeKeyAndOrderFront(nil)
     }
-    func update(_ host: Host?, hosts: [Host]) {
+    func update(_ host: Host?, hosts: [Host], settings: AppSettings = AppSettings(), providers: [any HostMetadataProvider] = []) {
         guard let panel else { return }
         guard let host else { close(); return }
         panel.title = host.displayName.full
-        panel.contentView = NSHostingView(rootView: HostQuickLook(host: host, hosts: hosts))
+        panel.contentView = NSHostingView(rootView: HostQuickLook(host: host, hosts: hosts, settings: settings, providers: providers))
     }
     func close() { panel?.close(); panel?.onMove = nil }
 }
@@ -51,6 +53,8 @@ final class HostPreviewController: ObservableObject {
 struct HostQuickLook: View {
     let host: Host
     let hosts: [Host]
+    var settings = AppSettings()
+    var providers: [any HostMetadataProvider] = []
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -68,11 +72,21 @@ struct HostQuickLook: View {
                             hosts.first { $0.id == id }?.displayName.full ?? L10n.tr("Deleted host")
                         }.joined(separator: " → "))
                     }
+                    ForEach(providers, id: \.id) { provider in
+                        if let configuration = settings.plugins[provider.id], configuration.enabled,
+                           let snapshot = host.metadataSnapshot(for: provider.id) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Divider()
+                                MetadataSnapshotView(snapshot: snapshot, layout: host.metadataLayouts[provider.id] ?? configuration.layout, title: provider.title)
+                                Divider()
+                            }.gridCellUnsizedAxes(.horizontal)
+                        }
+                    }
                     if let profile = host.systemProfile {
                         field(L10n.tr("Operating system"), profile.operatingSystem)
                         field(L10n.tr("Kernel & architecture"), profile.kernel)
-                        field("CPU", profile.cpu)
-                        field(L10n.tr("Memory"), profile.memory)
+                        field("CPU", profile.cpuSummary)
+                        field(L10n.tr("Available memory"), profile.memory)
                     }
                     if !host.notes.isEmpty { field(L10n.tr("Notes"), host.notes) }
                 }.textSelection(.enabled)

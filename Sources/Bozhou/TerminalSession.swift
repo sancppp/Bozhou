@@ -269,6 +269,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, @preconcu
 /// can exhaust scrollback before the real pane dimensions arrive.
 final class TerminalContainerView: NSView {
     let terminal: RecordingTerminalView
+    var wantsFocus = true
 
     init(terminal: RecordingTerminalView) {
         self.terminal = terminal
@@ -293,18 +294,20 @@ final class TerminalContainerView: NSView {
 
 struct TerminalSurface: NSViewRepresentable {
     @ObservedObject var session: TerminalSession
+    var focused = true
     func makeNSView(context: Context) -> TerminalContainerView {
         let view = TerminalContainerView(terminal: session.terminal)
+        view.wantsFocus = focused
         DispatchQueue.main.async { [weak session, weak view] in
             guard let session, let view, let window = view.window,
                   view.terminal.superview === view, session.terminal === view.terminal else { return }
             view.layoutSubtreeIfNeeded()
             session.start()
-            window.makeFirstResponder(view.terminal)
+            if view.wantsFocus { window.makeFirstResponder(view.terminal) }
         }
         return view
     }
-    func updateNSView(_ view: TerminalContainerView, context: Context) {}
+    func updateNSView(_ view: TerminalContainerView, context: Context) { view.wantsFocus = focused }
     static func dismantleNSView(_ view: TerminalContainerView, coordinator: ()) {
         view.detach()
     }
@@ -426,7 +429,7 @@ struct TerminalPane: View {
                 }
             }.padding(12).background(.bar)
             HStack(spacing: 0) {
-                TerminalSurface(session: session).id(ObjectIdentifier(session.terminal))
+                TerminalSurface(session: session, focused: model.commandSession?.id == session.id).id(ObjectIdentifier(session.terminal))
                 if showInteractions && width >= 760 {
                     Divider()
                     VStack(alignment: .leading, spacing: 12) {
@@ -485,6 +488,7 @@ struct TerminalPane: View {
             }
             .onAppear { if model.splitSession != nil { showInteractions = false } }
             .onChange(of: model.splitSession) { _, value in if value != nil { showInteractions = false } }
+            .overlay { SessionSplitDropTarget(target: session.id) }
             .overlay {
                 if model.splitSession != nil {
                     Rectangle().stroke(model.commandSession?.id == session.id ? sea.opacity(0.6) : .clear, lineWidth: 1).allowsHitTesting(false)

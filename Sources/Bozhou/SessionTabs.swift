@@ -38,9 +38,10 @@ struct SessionTab: View {
     @ObservedObject var session: TerminalSession
     var showsIcon = true
     var onRename: (TerminalSession) -> Void
+    @State private var insertionAfter: Bool?
     var body: some View {
         HStack(spacing: 0) {
-            Button { model.activeSession = session.id; model.splitSession = nil } label: {
+            Button { model.selectSession(session.id) } label: {
                 HStack(spacing: 5) {
                     if showsIcon { Image(systemName: "terminal").foregroundStyle(session.ended ? .secondary : sea) }
                     HostNameLabel(session.tabDisplayName)
@@ -48,6 +49,10 @@ struct SessionTab: View {
                 }.padding(.horizontal, 8).frame(height: 32).contentShape(Rectangle())
             }.buttonStyle(.plain).help(session.tabDisplayName.full)
                 .accessibilityIdentifier("session-tab-" + session.id.uuidString)
+                .overlay {
+                    SessionTabDragHandle(model: model, session: session, onRename: onRename, insertionAfter: $insertionAfter)
+                        .help(L10n.tr("Drag to reorder tabs or split the terminal"))
+                }
             Button { model.closeSession(session.id) } label: {
                 Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
                     .frame(width: 22, height: 32).contentShape(Rectangle())
@@ -56,6 +61,16 @@ struct SessionTab: View {
         .font(.system(size: 12))
         .background(model.activeSession == session.id || model.splitSession == session.id ? sea.opacity(0.13) : .clear,
                     in: RoundedRectangle(cornerRadius: 8))
+        .overlay(alignment: model.settings.tabPlacement == .horizontal
+                 ? (insertionAfter == true ? .trailing : .leading)
+                 : (insertionAfter == true ? .bottom : .top)) {
+            if insertionAfter != nil {
+                let horizontal = model.settings.tabPlacement == .horizontal
+                RoundedRectangle(cornerRadius: 2).fill(sea)
+                    .frame(width: horizontal ? 3 : nil, height: horizontal ? nil : 3).allowsHitTesting(false)
+            }
+        }
+        .onChange(of: model.draggedSession) { _, _ in insertionAfter = nil }
         .contextMenu {
             Button(L10n.tr("Rename Tab…")) { onRename(session) }
             if session.customTabName != nil { Button(L10n.tr("Reset Tab Name")) { session.renameTab("") } }

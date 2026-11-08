@@ -62,6 +62,9 @@ public struct Host: Record, Equatable {
     public var lastLoginAt: Date?
     public var systemProfile: SystemProfile?
     public var forwards: [LocalForward]
+    public var metadataBindings: [String: MetadataBinding] = [:]
+    public var metadataSnapshots: [String: MetadataSnapshot] = [:]
+    public var metadataLayouts: [String: MetadataLayout] = [:]
     public init(id: UUID = UUID(), name: String = "", address: String = "", port: Int = 22,
                 username: String = "root", group: String = "", authentication: Authentication = .agent) {
         self.id = id; self.name = name; self.address = address; self.port = port
@@ -73,6 +76,7 @@ public struct Host: Record, Equatable {
     private enum CodingKeys: String, CodingKey {
         case id, name, address, port, username, password, group, tags, authentication, identityID, jumpHosts
         case shell, environment, proxy, color, notes, favorite, createdAt, lastLoginAt, systemProfile, forwards
+        case metadataBindings, metadataSnapshots, metadataLayouts
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -97,6 +101,9 @@ public struct Host: Record, Equatable {
         lastLoginAt = try c.decodeIfPresent(Date.self, forKey: .lastLoginAt)
         systemProfile = try c.decodeIfPresent(SystemProfile.self, forKey: .systemProfile)
         forwards = try c.decodeIfPresent([LocalForward].self, forKey: .forwards) ?? []
+        metadataBindings = try c.decodeIfPresent([String: MetadataBinding].self, forKey: .metadataBindings) ?? [:]
+        metadataSnapshots = try c.decodeIfPresent([String: MetadataSnapshot].self, forKey: .metadataSnapshots) ?? [:]
+        metadataLayouts = try c.decodeIfPresent([String: MetadataLayout].self, forKey: .metadataLayouts) ?? [:]
     }
 }
 
@@ -119,19 +126,6 @@ public struct LocalForward: Codable, Equatable, Identifiable {
     }
     public var specification: String {
         "127.0.0.1:\(localPort):\(remoteHost.contains(":") ? "[\(remoteHost)]" : remoteHost):\(remotePort)"
-    }
-}
-
-public struct SystemProfile: Codable, Equatable {
-    public var collectedAt = Date()
-    public var hostname: String?
-    public var operatingSystem: String
-    public var kernel: String
-    public var cpu: String
-    public var memory: String
-    public init(operatingSystem: String, kernel: String, cpu: String, memory: String, hostname: String? = nil) {
-        self.hostname = hostname
-        self.operatingSystem = operatingSystem; self.kernel = kernel; self.cpu = cpu; self.memory = memory
     }
 }
 
@@ -224,11 +218,14 @@ public struct AppSettings: Codable, Equatable {
     public var expandedHostGroups: Set<String> = []
     public var expandedIdentityGroups: Set<String> = []
     public var tabPlacement: SessionTabPlacement = .horizontal
+    public var plugins: [String: PluginSettings] = [:]
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
         case fontName, fontSize, appearance, terminalBackgroundHex, autoReconnect, saveHistory, notifications, historyLimit
         case expandedHostGroups, expandedIdentityGroups, tabPlacement, language
+        // Keep the workspace key so existing extension preferences remain readable.
+        case plugins = "metadataExtensions"
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -244,6 +241,7 @@ public struct AppSettings: Codable, Equatable {
         expandedHostGroups = try values.decodeIfPresent(Set<String>.self, forKey: .expandedHostGroups) ?? []
         expandedIdentityGroups = try values.decodeIfPresent(Set<String>.self, forKey: .expandedIdentityGroups) ?? []
         tabPlacement = SessionTabPlacement(rawValue: try values.decodeIfPresent(String.self, forKey: .tabPlacement) ?? "") ?? .horizontal
+        plugins = try values.decodeIfPresent([String: PluginSettings].self, forKey: .plugins) ?? [:]
     }
 }
 

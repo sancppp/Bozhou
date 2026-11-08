@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import UserNotifications
 import BozhouCore
+import BozhouExtensions
 
 typealias Host = BozhouCore.Host
 
@@ -41,25 +42,48 @@ final class AppModel: ObservableObject {
     private(set) var log: AppLog
     let workingDirectory: URL
     let updater = AppUpdater()
-    @Published var hosts: [Host] = []
+    let plugins = PluginRegistry()
+    var metadata: MetadataCoordinator { plugins.metadata }
+    @Published var hosts: [Host] = [] {
+        didSet { libraryRevision &+= 1; hostSearchRevision &+= 1; updateHostSearch() }
+    }
     @Published var folders: [HostFolder] = []
     @Published var identities: [Identity] = []
     @Published var identityFolders: [IdentityFolder] = []
     @Published var selectedIdentityGroup = ""
     @Published var snippets: [Snippet] = []
-    @Published var history: [Interaction] = []
-    @Published var pins: [Pin] = []
-    @Published var settings: AppSettings
+    @Published var history: [Interaction] = [] {
+        didSet { libraryRevision &+= 1 }
+    }
+    @Published var pins: [Pin] = [] {
+        didSet { libraryRevision &+= 1 }
+    }
+    @Published var settings: AppSettings {
+        didSet {
+            if oldValue.plugins != settings.plugins {
+                hostSearchRevision &+= 1; updateHostSearch()
+            }
+        }
+    }
     @Published var page: Page = .hosts
     @Published var selectedGroup = ""
     @Published var hostSort: HostSort = .folders
     @Published var sortAscending = true
-    @Published var search = ""
+    @Published var search = "" {
+        didSet { if oldValue != search { updateHostSearch() } }
+    }
+    @Published private(set) var hostSearchMatches: Set<UUID> = []
+    @Published private(set) var isSearchingHosts = false
+    private let hostSearchIndex = HostSearchIndex()
+    private var hostSearchRevision = 0
+    private(set) var hostSearchTask: Task<Void, Never>?
     @Published var sessions: [TerminalSession] = []
     @Published var activeSession: UUID?
     @Published var focusedSession: UUID?
     @Published var splitSession: UUID?
     @Published var splitVertical = false
+    @Published var draggedSession: UUID?
+    let sessionDragScope = UUID()
     @Published var editorHost: Host?
     @Published var sftpHost: Host?
     @Published var error: String?
@@ -73,8 +97,10 @@ final class AppModel: ObservableObject {
     }
     var active: TerminalSession? { sessions.first { $0.id == activeSession } }
     var commandSession: TerminalSession? {
-        if let focusedSession, focusedSession == activeSession || focusedSession == splitSession {
-            return sessions.first { $0.id == focusedSession }
+        guard let active else { return nil }
+        if let focusedSession, focusedSession == splitSession,
+           let focused = sessions.first(where: { $0.id == focusedSession }) {
+            return focused
         }
         return active
     }
@@ -85,10 +111,23 @@ final class AppModel: ObservableObject {
     var filteredHosts: [Host] {
         HostTree.sorted(hosts.filter {
             HostTree.contains($0.group, in: selectedGroup) &&
-            (search.isEmpty || [$0.name, $0.systemProfile?.hostname ?? "", $0.address, $0.username, $0.tags]
-                .contains { TextSearch.contains($0, query: search) })
+            (search.isEmpty || hostSearchMatches.contains($0.id))
         }, by: hostSort, ascending: sortAscending)
     }
+    private func updateHostSearch() {
+        hostSearchTask?.cancel()
+        hostSearchMatches = []
+        isSearchingHosts = !search.isEmpty
+        guard !search.isEmpty else { hostSearchTask = nil; return }
+        let hosts = hosts, query = search, revision = hostSearchRevision, index = hostSearchIndex
+        let providers = Set(plugins.metadataProviders.map(\.id))
+        hostSearchTask = Task { [weak self] in
+            let matches = await index.matches(hosts: hosts, enabledProviders: providers, revision: revision, query: query)
+            guard !Task.isCancelled, let self, self.search == query, self.hostSearchRevision == revision else { return }
+            hostSearchMatches = matches; isSearchingHosts = false
+        }
+    }
+    deinit { hostSearchTask?.cancel() }
     var colorScheme: ColorScheme? {
         settings.appearance == "dark" ? .dark : settings.appearance == "light" ? .light : nil
     }
@@ -106,13 +145,23 @@ final class AppModel: ObservableObject {
         L10n.configureSystemUI()
         if NSFont(name: settings.fontName, size: settings.fontSize) == nil { settings.fontName = "Menlo-Regular" }
         try reload()
+        try BuiltInPlugins.register(in: plugins)
+        plugins.configure(settings.plugins)
+        plugins.onChange = { [weak self] in
+            guard let self else { return }
+            objectWillChange.send()
+            hostSearchRevision &+= 1; updateHostSearch()
+        }
+        metadata.onSnapshot = { [weak self] id, snapshot in
+            guard let self else { return }
+            if try store.saveMetadata(snapshot, hostID: id) { hosts = try store.list(Host.self) }
+        }
         log.write(L10n.tr("Application started"))
     }
     func reload() throws {
         hosts = try store.list(Host.self); folders = try store.list(HostFolder.self); identities = try store.list(Identity.self)
         identityFolders = try store.list(IdentityFolder.self)
         snippets = try store.list(Snippet.self); history = try store.list(Interaction.self); pins = try store.list(Pin.self)
-        libraryRevision &+= 1
     }
     func perform(_ action: () throws -> Void) {
         do { try action() } catch { report(error) }
@@ -125,11 +174,12 @@ final class AppModel: ObservableObject {
         var host = host
         host.group = try HostTree.normalize(host.group)
         try builder.validate(host, hosts: hosts.filter { $0.id != host.id } + [host], identities: identities)
-        try store.transaction {
+        metadata.cancel(hostID: host.id)
+        try store.saveHostPreservingObservations(host) {
             try ensureFolders(host.group)
-            try store.save(host)
         }
         try reload()
+        if let saved = hosts.first(where: { $0.id == host.id }) { metadata.request(saved) }
         editorHost = nil; notify(L10n.tr("Host saved"))
     }
     func deleteHost(_ host: Host) {
@@ -137,6 +187,7 @@ final class AppModel: ObservableObject {
             guard !hosts.contains(where: { $0.id != host.id && $0.jumpHosts.contains(host.id) }) else {
                 throw BozhouError.invalid(L10n.tr("This host is still used as a jump host. Remove those references first."))
             }
+            metadata.cancel(hostID: host.id)
             try store.delete(Host.self, id: host.id); try reload()
         }
     }
@@ -157,6 +208,7 @@ final class AppModel: ObservableObject {
                 current.lastLoginAt = Date()
                 current.systemProfile = profile
                 self.perform { try self.store.save(current); try self.reload() }
+                self.metadata.request(current, priority: true)
             }
             session.onExit = { [weak self] message in
                 self?.log.write("\(host.name): \(message)", level: .warning, category: "SSH lifecycle")
@@ -198,6 +250,7 @@ final class AppModel: ObservableObject {
         guard let session = sessions.first(where: { $0.id == id }) else { return }
         session.close()
         sessions.removeAll { $0.id == id }
+        if draggedSession == id { draggedSession = nil }
         if activeSession == id {
             activeSession = splitSession.flatMap { other in sessions.first { $0.id == other }?.id } ?? sessions.last?.id
             splitSession = nil
@@ -205,7 +258,43 @@ final class AppModel: ObservableObject {
         if focusedSession == id { focusedSession = activeSession }
         if sessions.isEmpty { page = .hosts }
     }
-    func closeAll() { for session in sessions { session.close(immediately: true) }; sessions = []; activeSession = nil; focusedSession = nil; splitSession = nil }
+    func closeAll() { plugins.shutdown(); for session in sessions { session.close(immediately: true) }; sessions = []; activeSession = nil; focusedSession = nil; splitSession = nil; draggedSession = nil }
+    func showWorkspace(_ page: Page? = nil) {
+        activeSession = nil; splitSession = nil; focusedSession = nil; draggedSession = nil
+        if let page { self.page = page }
+    }
+    func selectSession(_ id: UUID) {
+        guard sessions.contains(where: { $0.id == id }) else { return }
+        activeSession = id; splitSession = nil; focusSession(id)
+    }
+    func moveSession(_ id: UUID, relativeTo target: UUID, after: Bool) {
+        guard id != target, let source = sessions.firstIndex(where: { $0.id == id }),
+              sessions.contains(where: { $0.id == target }) else { return }
+        var reordered = sessions
+        let session = reordered.remove(at: source)
+        guard let destination = reordered.firstIndex(where: { $0.id == target }) else { return }
+        reordered.insert(session, at: destination + (after ? 1 : 0))
+        sessions = reordered
+    }
+    func canSplitSession(_ id: UUID, beside target: UUID) -> Bool {
+        id != target && (target == activeSession || target == splitSession) &&
+            sessions.contains(where: { $0.id == id }) && sessions.contains(where: { $0.id == target })
+    }
+    func splitSession(_ id: UUID, beside target: UUID, edge: SessionSplitEdge) {
+        guard canSplitSession(id, beside: target) else { return }
+        activeSession = edge.insertsFirst ? id : target
+        splitSession = edge.insertsFirst ? target : id
+        splitVertical = edge.vertical
+        focusSession(id)
+    }
+    private func focusSession(_ id: UUID) {
+        focusedSession = id
+        DispatchQueue.main.async { [weak self] in
+            guard let self, focusedSession == id, id == activeSession || id == splitSession,
+                  let session = sessions.first(where: { $0.id == id }) else { return }
+            session.terminal.window?.makeFirstResponder(session.terminal)
+        }
+    }
     func record(_ interaction: Interaction) {
         guard settings.saveHistory else { return }
         perform {
@@ -234,6 +323,17 @@ final class AppModel: ObservableObject {
     }
     func saveIdentity(_ key: Identity) throws {
         try store.saveIdentity(key); try reload()
+    }
+    func finishIdentityImport(_ key: Identity, from source: Store) throws {
+        // A completed file read belongs to the workspace where the import began.
+        guard store === source else { return }
+        guard !key.fingerprint.isEmpty else {
+            throw BozhouError.invalid(L10n.tr("Could not recognize the SSH key. Check the selected file."))
+        }
+        if identities.contains(where: { $0.fingerprint == key.fingerprint }) {
+            notify(L10n.tr("This key has already been imported")); return
+        }
+        try saveIdentity(key); notify(L10n.tr("Key imported"))
     }
     func createIdentityFolder(_ path: String) {
         perform { try store.createIdentityFolder(path); try reload() }
@@ -338,9 +438,11 @@ final class AppModel: ObservableObject {
             }
             let copied = try WorkspaceLocation.copy(store: store, from: paths, to: url)
             let newStore = try Store(url: copied.database)
+            plugins.stopWorkspace()
             store = newStore; paths = copied; log = AppLog(paths: copied)
             UserDefaults.standard.set(copied.root.path, forKey: "workspacePath")
             try reload(); notify(L10n.tr("Data location changed. Original directory retained."))
+            startPlugins()
         }
     }
     func checkWorkspaceSwitch() throws {
@@ -359,17 +461,28 @@ final class AppModel: ObservableObject {
         _ = try next.list(Host.self); _ = try next.list(HostFolder.self)
         _ = try next.list(Identity.self); _ = try next.list(IdentityFolder.self)
         _ = try next.list(Snippet.self); _ = try next.list(Interaction.self); _ = try next.list(Pin.self)
+        plugins.stopWorkspace()
         store = next; paths = restored; log = AppLog(paths: restored); settings = nextSettings
         selectedGroup = ""; selectedIdentityGroup = ""; search = ""
         UserDefaults.standard.set(restored.root.path, forKey: "workspacePath")
         try reload()
+        startPlugins()
     }
     func saveSettings() {
         perform { try store.saveSettings(settings) }
+        plugins.configure(settings.plugins)
+        refreshMetadata()
         for session in sessions { session.apply(settings) }
         if settings.notifications {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
+    }
+    func startPlugins() {
+        plugins.configure(settings.plugins)
+        refreshMetadata()
+    }
+    func refreshMetadata(providerID: String? = nil, force: Bool = false) {
+        for host in hosts { metadata.request(host, providerID: providerID, force: force) }
     }
     func notify(_ text: String) {
         toast = text

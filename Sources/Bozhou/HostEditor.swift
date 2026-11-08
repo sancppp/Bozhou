@@ -123,11 +123,12 @@ struct HostEditor: View {
                         LabeledContent(L10n.tr("Collected at"), value: L10n.date(profile.collectedAt))
                         profileField(L10n.tr("Operating system"), profile.operatingSystem)
                         profileField(L10n.tr("Kernel & architecture"), profile.kernel)
-                        profileField("CPU", profile.cpu)
-                        profileField(L10n.tr("Memory"), profile.memory)
+                        profileField("CPU", profile.cpuSummary)
+                        profileField(L10n.tr("Available memory"), profile.memory)
                     }
                     Text(L10n.tr("Each login updates hostname, OS, CPU and memory information using read-only commands.")).font(.caption).foregroundStyle(.secondary)
                 }
+                HostMetadataEditor(host: $host)
                 Section(L10n.tr("Notes")) { TextEditor(text: $host.notes).frame(height: 55) }
             }.formStyle(.grouped)
             if let validation { Label(validation, systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.red).padding(12) }

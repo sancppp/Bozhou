@@ -46,10 +46,14 @@ python3 --version
 | `SFTPView.swift`、`ServerTransferView.swift` | 文件浏览和双服务器传输；异步结果用 generation 隔离 |
 | `ConnectionBuilder.swift` | 参数校验、展开跳板、生成每次会话独立的 SSHLaunch |
 | `SSHHostKeyFailure.swift`、`HostKeyRecoveryView.swift` | 基于本次连接的节点标识识别密钥变化、确认后定点重置信任并重连 |
-| `ShellIntegration.swift`、`SystemProbe.swift` | Shell 启动 Hook、OSC 字节流解析、登录时只读系统信息采集 |
+| `ShellIntegration.swift`、`SystemProbe.swift`、`SystemProfile.swift` | Shell 启动 Hook、OSC 字节流解析、登录时只读系统信息采集及摘要解析 |
+| `SessionDrag.swift`、`HostSearch.swift` | 原生标签拖拽/分屏提示与取消生命周期、后台主机详情搜索索引 |
 | `TerminalDiagnostics.swift` | 异常退出状态、有限上下文、私有日志落盘与保留数量 |
 | `SFTPClient.swift` | SFTP v3 actor；专属 DispatchQueue 执行阻塞管道 IO |
 | `Store.swift`、`Models.swift` | SQLite、Codable 模型、路径与设置 |
+| `HostMetadata.swift`、`PluginSettings.swift`、`BozhouExtensions/` | 通用插件注册、能力发现、启停/卸载/工作空间生命周期、元数据调度 |
+| `BozhouNightHawk/`、`BuiltInPlugins.swift` | 独立 NightHawk 实现；应用唯一供应商注册入口 |
+| `PluginSettingsView.swift`、`MetadataViews.swift` | 声明驱动的插件设置、元数据绑定和展示 |
 | `PasswordCache.swift`、`BozhouAskPass/main.swift` | 逐主机密码复用、认证 UI 与指纹确认 |
 | `WorkspaceLocation.swift` | 在线 SQLite 备份与数据目录切换 |
 | `WorkspaceBackup.swift`、`WorkspaceBackupView.swift` | 版本化逻辑备份、完整性校验、新目录恢复与导入导出 |
@@ -84,19 +88,33 @@ sequenceDiagram
 - 自定义主机名称与实际 hostname 均保留；hostname 同时用于展示、搜索和「登录与系统信息」。
 - 名称展示优先完整 `名称(hostname)`，宽度不足使用 hostname 末六位；悬停保留完整文本。未采集时回退连接地址；历史与收藏持久化可选 hostname 快照，旧记录按 hostID 回查。
 - 终端内容区头部固定为两行：名称/hostname、用户名与地址端口、文件夹路径同处第一行，连接状态独占第二行；窄分屏内截断而不新增行。
-- 主机空格预览不连接、不编辑；空格/Esc 关闭，方向键同步选择，离开主机页关闭预览。
+- 主机空格预览不连接、不编辑；空格/Esc 关闭，方向键同步选择，离开主机页关闭预览。启用的云元数据扩展信息位于“操作系统”之前，按完整宽度展示。
 - 主机树展开状态保存在当前工作空间的 `AppSettings.expandedHostGroups`，通过 `AppModel.setHostGroupExpanded` 即时持久化，切页和重启后恢复。收起父目录保留子目录状态，搜索自动展开不改写记录；重命名/移动和删除须在文件夹事务中同步更新路径。
 - 密钥使用独立 `identity_folders` 表与 `Identity.group`，展开状态为 `expandedIdentityGroups`；目录事务同步更新密钥路径与展开路径，密钥 ID 和原文件位置保持。旧密钥默认位于根目录。
+- 异步密钥导入捕获开始时的 Store 实例；结果交付时核对实例身份，切换工作空间后丢弃迟到结果，普通页面切换不取消导入。
 - 会话标签名称仅影响当前会话标签，不改写主机和历史名称；`tabPlacement` 按工作空间持久化。横向标签达到保留 hostname 末六位的最小宽度后滚动，不能交给原生工具栏隐藏溢出标签。竖向标签放在左侧导航下方，切换方向保持同一 PTY。
+- 标签拖拽使用原生 NSDraggingSource/Destination 和当前 AppModel 作用域的私有载荷；开始拖动不得选中源标签。拖到标签前/后调整顺序，拖到另一个可见终端的四个边区显示半区动画，松开时才建立上下/左右双窗格。最多两个可见会话，其余保留；Esc、外部放下和关闭会话均清理拖拽状态。普通点击标签恢复单窗格，删除旧分屏菜单入口。
 - 页面查找通过 `FindCommands` 将 ⌘F 路由到当前窗口的搜索输入框；不依赖短暂页面的 SwiftUI FocusedValue。筛选、高亮与片段提取使用 `TextSearch` 的字面量、不区分大小写及音调匹配；长文本使用原生 `NSTextView`，查找滚动不能抢走搜索框焦点。
 - 搜索框内部保留草稿，停止输入 1 秒后提交；显式清空和 Esc 立即生效。焦点查找当前窗口中标识为 `page-search` 的原生输入框，避免菜单闭包引用已移除页面。历史/收藏结果按提交查询与 `libraryRevision` 后台缓存，长文本匹配支持取消；过期任务不得覆盖新结果，仅查询变化不得重建全文或重新计算文本尺寸。
+- hosts/history/pins 的实际变更统一使 `libraryRevision` 失效，后台新增交互也须刷新已打开的搜索。主机底部操作只针对当前列表或网格中的可见选中主机。
+- 主机搜索由 `HostSearchIndex` 在后台建立白名单字段索引，涵盖空格预览的系统摘要、备注、跳板名称和启用插件的缓存属性（隐藏字段仍可搜索）；不索引密码、环境变量和密钥。主机/元数据/插件设置变更使索引失效，仅查询变化复用索引；取消任务与 revision 校验拒绝旧结果。
+- `SystemProfile` 初始化及旧数据解码均解析摘要；OS 优先 PRETTY_NAME，CPU 为 Model name 与 CPU(s) 逻辑核数，可用内存为 Linux MemAvailable 或 macOS 空闲/非活跃/预读页之和（GiB）。旧 hw.memsize 是容量，不能当作可用内存；无法解析时保持缺失，等待下次登录采集。
 - 默认浅色终端背景 `#F1F2F4`，深色 `#0E141F`；不能恢复纯白底。颜色即时作用于已有终端并持久化。
 - 分屏命令作用于焦点窗格；PTY 尺寸与视图同步。
+- 菜单、工具栏和侧栏统一通过 `showWorkspace` 返回工作空间并清理分屏、焦点与拖动状态；没有可见主会话时 `commandSession` 必须为空。
 - `TerminalSession` 持有终端和滚动历史；SwiftUI 通过 `TerminalContainerView` 挂载，不能把挂载/卸载时的零尺寸传给 SwiftTerm，否则极窄列宽重排会挤掉历史。旧容器拆卸时只移除仍属于自己的终端。
 - 字体和颜色未变化时不重复设置，避免清空渲染缓存、重置终端模式和触发布局；输出尾部用有界环形缓存，按需生成快照。
 - `⌘−` / `⌘=` / `⌘+` 缩放焦点终端（10–36 pt），会话内保留；显式修改设置字号重置临时缩放。快捷键不得发往远端。
 
 ### 连接和异步生命周期
+
+- 插件默认关闭。`BozhouExtensions` 仅依赖 Core；`BozhouNightHawk` 依赖通用插件接口，应用仅在 `BuiltInPlugins.swift` 注册供应商。新增插件开发入口见 `PLUGIN_DEVELOPMENT.md`。核心和通用 UI 不导入供应商模块，不匹配供应商 ID。
+- `BozhouPlugin` 声明描述、设置和类型化能力；`PluginRegistry` 提供注册、启用、禁用、注销、工作空间停止和退出清理。停用时先使 `PluginContext.isActive` 失效并取消其任务，再调用清理钩子。异步能力交付结果前须校验 context；核心的元数据调度还校验任务 token、provider ID 和 subjectKey。配置变化重建激活上下文，仅字段布局变化不重启查询。注销保留持久化配置，重新注册可复用。
+- `HostMetadataProvider` 是可选能力。只向它传递 `MetadataSubject` 的主机名称、hostname、地址和绑定条件，不传密码、Shell 环境或密钥。没有元数据能力的插件可独立启停；新增终端或 AI 能力必须显式定义受限接口和消费端，不能绕过接口获取 AppModel/Store。
+- NightHawk 使用现有本地 CLI/SSO，显式传 `--env`、`--output json`，不安装、登录或修改 CLI 全局配置。自动候选 `iv-* → i-*` 必须核对该 ECS 的网卡地址、`device_id` 及实例绑定账号；网卡可合法属于其他账号，其关联资源须按网卡记录中的账号分别核对。无可靠 ID 的私网 IP 不自动关联，用户可明确绑定 ID/region/account/env。
+- 查询先取 schema，再使用其 list URL；不硬编码后台接口。动态展开 detail 和全部 ECS list 列，字段标识使用属性路径，数组行号和资源 ID 不作为显示规则键；标签按 tag key 区分，资源来源不得混淆。关联展开仅限 ECS 直接网卡的 ENI/VPC/subnet/EIP，不递归扫描 VPC 主机。
+- 元数据队列串行、主机去重、缓存 15 分钟；实际 CLI 请求间隔至少 1.2 秒，429 统一暂停 60 秒并对该次请求重试一次，等待可取消。CLI 单次超时 20 秒、输出 8 MiB，单主机最多 96 次请求且请求启动窗口 180 秒，直接关联资源最多 16 个，每列表最多 10 页/500 行。展示值合计约 1 MiB、每属性 16 KiB/最多 4000 属性；截断或部分失败必须可见。禁用、删除和切换工作空间取消任务，token 校验拒绝迟到结果。
+- `Store.saveMetadata` 在事务中核对当前 `MetadataSubject.key`，仅更新 metadataSnapshots；编辑器通过 `saveHostPreservingObservations` 保留后台采集。`AppSettings.plugins` 保存插件配置和默认字段规则，沿用 `metadataExtensions` JSON 键，兼容读取旧 executable/environments。供应商默认值由插件提供。Host 的 `metadataLayouts` 可覆盖；旧数据缺失扩展字段时使用空字典。
 
 - `TerminalSession.start()` 必须拒绝已关闭或已结束的会话，防止视图排队的迟到启动创建后台进程。
 - 每次 SSH 重连重新构建配置和 PTY；旧进程回调用 `source === terminal` 等条件排除。不得重放用户命令。
@@ -135,11 +153,13 @@ sequenceDiagram
 
 - `Vendor/SwiftTerm` 和 `Vendor/bash-preexec` 是固定提交的 Git 子模块，版本见 `THIRD_PARTY_NOTICES.md`。
 - `prepare.sh` 复制并补丁 SwiftTerm 到 `.runtime/SwiftTerm`；根 Package 仅编译其库源码，避免拉入演示依赖。
+- 原生应用测试通过 `native_test_support.sh` 读取 SwiftPM 的当前 Objects.LinkFileList；不使用依赖目录的 `*.o` 通配符，避免链接源码移动后的残留对象文件，新插件模块自动纳入测试链接。
 - Bash 资源由子模块复制到 `Sources/BozhouCore/Resources/`。生成副本不入 Git、不手改；更新依赖应改 gitlink 与 `Patches/`。
 - `build.sh` 打包 Bozhou、BozhouAskPass、BozhouUpdater 三个可执行文件与资源包。已生成图标在 `Resources/`；需要改图标时手动运行 `generate_icon.swift` 与 `iconutil`，构建不重复改图标。
+- 预览可设置 `BOZHOU_APP_OUTPUT` 为新的绝对 `.app` 路径，`build.sh`、`package_app.py` 和 `verify_package.py` 共用该输出位置；默认仍为 `dist/泊舟.app`。`BOZHOU_PREVIEW_BUILD` 写入关于页面的本地预览标记。
 - `VERSION` 是发布版本源，`package_app.py` 写入 Info.plist，关于页面读取 Bundle 版本；裸可执行文件显示“开发构建”。
 - 资源使用明确白名单，`verify_package.py` 验证；禁止将 `Docs/`、真实工作空间或调试材料整目录复制入包。
-- `Scripts/install.sh` 默认安装到系统级 `/Applications/泊舟.app`；仅在调用方显式传入目录时使用其他安装位置。
+- `Scripts/install.sh` 使用与构建一致的 `BOZHOU_APP_OUTPUT` 作为来源，默认安装到系统级 `/Applications/泊舟.app`；仅在调用方显式传入目录时使用其他安装位置。
 - 当前 ad-hoc 签名，无 Developer ID 或公证。更新源固定为 `sancppp/Bozhou` 的 GitHub Release；启动仅检查，下载及安装须用户主动触发。只接受较新的稳定三段版本及匹配的 arm64 ZIP/SHA256SUMS，验证下载上限、SHA-256、ZIP 双重路径、链接、展开大小、bundle ID、版本和代码签名；Mach-O 架构校验不依赖 Xcode。
 - 更新 helper 与本地化资源先复制到安装目录旁的私有暂存目录，等待原进程退出后替换并启动；超时不能替换。旧 app 保留，替换或启动命令失败时回滚，不接触工作空间。安装目录无写权限应报错，不自动提权。`BozhouApp` 单独触发启动检查，测试创建 `AppModel` 不能访问 GitHub。
 
@@ -151,6 +171,7 @@ sequenceDiagram
 | Shell 真实 PTY、嵌套 Shell、Vim、粘贴、尺寸压力 | `bash Scripts/test.sh --shell-stability` |
 | SSH、认证、多跳、SFTP、转发 | `bash Scripts/test.sh` |
 | 编辑绑定、终端切换/滚动历史/关闭释放、取消回调 | `bash Scripts/test_regressions.sh` |
+| 元数据扩展设置、编辑合并、缓存及双语布局 | `bash Scripts/test_metadata.sh` |
 | 原生终端输入 | `bash Scripts/test_native.sh` |
 | 主机键鼠交互 | `bash Scripts/test_hosts.sh` |
 | 多会话、分屏、尺寸、颜色 | `bash Scripts/test_hosts.sh --layout` |
@@ -159,6 +180,8 @@ sequenceDiagram
 | 更新 helper 退出等待、替换与启动 | 打包后 Python 执行 `Scripts/test_update_helper.py`，仅操作临时签名 fixture |
 
 公开更新检查可显式运行 `.build/debug/BozhouCoreTests --verify-update-feed <新建临时目录>`；原生启动/手动更新界面用 `BOZHOU_VERIFY_UPDATE_UI=1 bash Scripts/test_titlebar.sh`。这两项会访问公开 GitHub，默认回归不联网。
+
+显式授权后的云元数据只读验证：`.build/debug/BozhouCoreTests --verify-metadata <选择器JSON> <新建输出目录>`。JSON 为最多 10 项数组，仅含 `name`、`hostname`、`address`，可选 `resourceID`、`region`、`accountID`、`environment`；不读取或修改真实工作空间，结果仅写指定私有目录，真实数据不得提交。默认单测使用匿名内存 fixture。
 
 集成 fixture 仅在 `127.0.0.1` 创建随机端口，不连接真实服务器。不要并发运行同一工作区的构建或 fixture。原生回归脚本自动创建临时 `BOZHOU_DATA_DIR`；布局测试会启动本地 Zsh，可能读取当前用户配置，需要时使用隔离 HOME/ZDOTDIR。
 
