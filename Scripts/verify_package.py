@@ -3,9 +3,10 @@
 from pathlib import Path
 import plistlib
 import subprocess
+import os
 
 root = Path(__file__).resolve().parent.parent
-app = root / "dist" / "泊舟.app"
+app = Path(os.environ.get("BOZHOU_APP_OUTPUT", str(root / "dist" / "泊舟.app"))).expanduser().absolute()
 with (app / "Contents" / "Info.plist").open("rb") as stream:
     info = plistlib.load(stream)
 assert info["CFBundleShortVersionString"] == (root / "VERSION").read_text().strip()

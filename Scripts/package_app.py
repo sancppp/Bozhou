@@ -11,7 +11,7 @@ version = (root / "VERSION").read_text().strip()
 if not re.fullmatch(r"\d+\.\d+\.\d+", version):
     sys.exit("VERSION must contain a numeric major.minor.patch version")
 configuration = sys.argv[1]
-app = root / "dist" / "泊舟.app"
+app = Path(os.environ.get("BOZHOU_APP_OUTPUT", str(root / "dist" / "泊舟.app"))).expanduser().absolute()
 if app.exists():
     shutil.rmtree(app)
 macos = app / "Contents" / "MacOS"

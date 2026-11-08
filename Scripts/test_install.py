@@ -2,8 +2,10 @@
 """Data-preservation checks for the installation migration."""
 from contextlib import closing, redirect_stdout
 import io
+import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 
@@ -87,6 +89,31 @@ class MigrationTests(unittest.TestCase):
         script = (Path(__file__).resolve().parent / "install.sh").read_text()
         self.assertIn('INSTALL_DIR="${1:-/Applications}"', script)
         self.assertNotIn("$HOME/Applications", script)
+
+    def test_installer_verifies_the_requested_build_before_installing(self):
+        project = Path(__file__).resolve().parent.parent
+        executable = self.root / "codesign"
+        executable.write_text(
+            '#!/bin/sh\nprintf "%s\\n" "$@" > "$BOZHOU_TEST_CODESIGN_ARGS"\nexit 19\n'
+        )
+        executable.chmod(0o700)
+        arguments = self.root / "codesign-arguments"
+        destination = self.root / "Applications"
+        for override in (None, str(self.root / "preview with spaces" / "泊舟.app")):
+            with self.subTest(override=override):
+                environment = dict(os.environ, PATH=f"{self.root}:{os.defpath}",
+                                   BOZHOU_TEST_CODESIGN_ARGS=str(arguments))
+                environment.pop("BOZHOU_APP_OUTPUT", None)
+                if override is not None:
+                    environment["BOZHOU_APP_OUTPUT"] = override
+                result = subprocess.run(
+                    ["/bin/bash", str(project / "Scripts/install.sh"), "--no-build", str(destination)],
+                    env=environment, capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode, 19, result.stderr)
+                self.assertEqual(arguments.read_text().splitlines(),
+                                 ["--verify", "--deep", "--strict", override or str(project / "dist/泊舟.app")])
+                self.assertFalse(destination.exists(), "The failing signature stub must prevent installation")
 
 
 if __name__ == "__main__":
