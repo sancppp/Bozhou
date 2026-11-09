@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.1
+
+### Update installation and restart
+
+- Fix installation remaining on **Preparing installation…** when the update window blocks the app from quitting.
+- Dismiss the update window and wait for native modal sheets to finish before starting the updater helper and requesting shutdown.
+- Keep installation busy through the handoff. If quitting is refused, stop the helper, show an error and retain the verified download for another attempt.
+- Cancel preparation safely and report dialogs that continue to block shutdown, without replacing a running app.
+- Add isolated regressions for real SwiftUI window dismissal, successful replacement and restart, rejected quits and retry, cancellation, blocking dialogs and both UI languages.
+
+### Upgrading from an affected version
+
+- If 1.2.1 or 1.3.0 remains on **Preparing installation…**, close the update window, quit Bozhou normally and install this release manually once. Downloading a new release cannot change the updater code already running in the older app. Your workspace is stored separately from the app.
+
 ## 1.3.0
 
 ### Host information and optional ECS metadata
