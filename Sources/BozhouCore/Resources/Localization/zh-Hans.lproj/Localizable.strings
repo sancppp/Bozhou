@@ -515,6 +515,9 @@
 "Update verified. Ready to install." = "更新校验通过，可以安装。";
 "Move Bozhou to a writable Applications folder before updating" = "请先将泊舟移至可写的应用程序文件夹再更新";
 "Preparing installation…" = "正在准备安装…";
+"Closing the update window…" = "正在关闭更新窗口…";
+"Restarting to install the update…" = "正在重启以安装更新…";
+"Close any open dialogs and try installing the update again." = "请关闭打开的对话框后重试安装更新。";
 "Could not install the update: {0}" = "无法安装更新：{0}";
 "GitHub rate limit reached. Try again later." = "已达到 GitHub 请求频率上限，请稍后重试。";
 "GitHub update request failed (HTTP {0})" = "GitHub 更新请求失败（HTTP {0}）";

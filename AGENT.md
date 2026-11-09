@@ -162,6 +162,7 @@ sequenceDiagram
 - `Scripts/install.sh` 使用与构建一致的 `BOZHOU_APP_OUTPUT` 作为来源，默认安装到系统级 `/Applications/泊舟.app`；仅在调用方显式传入目录时使用其他安装位置。
 - 当前 ad-hoc 签名，无 Developer ID 或公证。更新源固定为 `sancppp/Bozhou` 的 GitHub Release；启动仅检查，下载及安装须用户主动触发。只接受较新的稳定三段版本及匹配的 arm64 ZIP/SHA256SUMS，验证下载上限、SHA-256、ZIP 双重路径、链接、展开大小、bundle ID、版本和代码签名；Mach-O 架构校验不依赖 Xcode。
 - 更新 helper 与本地化资源先复制到安装目录旁的私有暂存目录，等待原进程退出后替换并启动；超时不能替换。旧 app 保留，替换或启动命令失败时回滚，不接触工作空间。安装目录无写权限应报错，不自动提权。`BozhouApp` 单独触发启动检查，测试创建 `AppModel` 不能访问 GitHub。
+- 更新安装先关闭 SwiftUI 更新 sheet，结合 `onDismiss` 与 AppKit `didEndSheetNotification` 检查模态窗口实际解除，再启动 helper 并请求退出；不能用固定延时猜测解除时机。等待关闭超过 10 秒须清理暂存并保留已验证下载供重试。退出被拒时停止 helper，不能留待后来一次普通退出替换应用。安装过程持续 busy，真正退出时才清理下载缓存。
 
 ## 验证选择
 
@@ -178,6 +179,7 @@ sequenceDiagram
 | 真实 Window 工具栏 | `bash Scripts/test_titlebar.sh` |
 | 安装迁移 / 打包 | Python 执行 `Scripts/test_install.py` / `Scripts/verify_package.py` |
 | 更新 helper 退出等待、替换与启动 | 打包后 Python 执行 `Scripts/test_update_helper.py`，仅操作临时签名 fixture |
+| 更新窗口解除、应用退出、拒绝重试与准备取消 | `bash Scripts/test_update_install.sh`，真实 SwiftUI 窗口和 helper，仅安装到 `/tmp` 中的隔离签名 fixture |
 
 公开更新检查可显式运行 `.build/debug/BozhouCoreTests --verify-update-feed <新建临时目录>`；原生启动/手动更新界面用 `BOZHOU_VERIFY_UPDATE_UI=1 bash Scripts/test_titlebar.sh`。这两项会访问公开 GitHub，默认回归不联网。
 

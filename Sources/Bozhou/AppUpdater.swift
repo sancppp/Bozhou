@@ -4,6 +4,7 @@ import BozhouCore
 
 @MainActor
 final class AppUpdater: ObservableObject {
+    typealias Fetch = @Sendable (URL, URL, Int64, @escaping @Sendable (Double) -> Void) async throws -> Int
     @Published var presented = false
     @Published private(set) var release: ReleaseUpdate?
     @Published private(set) var status = ""
@@ -11,10 +12,28 @@ final class AppUpdater: ObservableObject {
     @Published private(set) var progress: Double = 0
     @Published private(set) var ready: URL?
     @Published private(set) var checkedAt: Date?
+    @Published private(set) var installing = false
+    private struct Installation {
+        let directory: URL
+        let version: String
+        let language: String
+    }
+    private var pendingInstallation: Installation?
+    private var dismissalObserver: NSObjectProtocol?
+    private var dismissalTimeout: Task<Void, Never>?
+    private let fetch: Fetch
     private var task: Task<Void, Never>?
     private var checkedOnLaunch = false
     private var downloadDirectory: URL?
     var currentVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0" }
+
+    init(fetch: @escaping Fetch = { url, file, limit, progress in
+        try await UpdateDownload(limit: limit, progress: progress).fetch(url, to: file)
+    }) { self.fetch = fetch }
+    deinit {
+        dismissalTimeout?.cancel()
+        if let dismissalObserver { NotificationCenter.default.removeObserver(dismissalObserver) }
+    }
 
     func checkOnLaunch() {
         guard !checkedOnLaunch else { return }
@@ -22,7 +41,7 @@ final class AppUpdater: ObservableObject {
         check(manual: false)
     }
     func check(manual: Bool = true) {
-        if manual { presented = true }
+        if manual && !installing { presented = true }
         guard !busy else { return }
         discardDownload()
         ready = nil; release = nil
@@ -33,7 +52,7 @@ final class AppUpdater: ObservableObject {
             do {
                 let directory = try makeDownloadDirectory(); temporary = directory
                 let file = directory.appendingPathComponent("release.json")
-                let code = try await UpdateDownload(limit: 2 * 1024 * 1024).fetch(ReleaseUpdate.endpoint, to: file)
+                let code = try await fetch(ReleaseUpdate.endpoint, file, 2 * 1024 * 1024, { _ in })
                 guard code == 200 || code == 404 else { throw serverError(code) }
                 let found = code == 404 ? nil : try ReleaseUpdate.parse(Data(contentsOf: file), current: ReleaseVersion(currentVersion) ?? ReleaseVersion("0.0.0")!)
                 try Task.checkCancellation()
@@ -47,7 +66,15 @@ final class AppUpdater: ObservableObject {
             if let temporary { try? FileManager.default.removeItem(at: temporary) }
         }
     }
-    func cancel() { task?.cancel() }
+    func cancel() {
+        task?.cancel()
+        if let pending = pendingInstallation {
+            pendingInstallation = nil; stopWaitingForDismissal()
+            try? FileManager.default.removeItem(at: pending.directory)
+            busy = false; installing = false; status = L10n.tr("Update cancelled")
+            presented = true
+        }
+    }
     func download() {
         guard !busy, let release else { return }
         busy = true; progress = 0; status = L10n.tr("Downloading update…")
@@ -59,12 +86,12 @@ final class AppUpdater: ObservableObject {
                 ready = nil
                 let folder = try makeDownloadDirectory(); directory = folder; downloadDirectory = folder
                 let zip = folder.appendingPathComponent(release.filename), sums = folder.appendingPathComponent("SHA256SUMS")
-                let checksumStatus = try await UpdateDownload(limit: 1024 * 1024).fetch(release.checksums, to: sums)
+                let checksumStatus = try await fetch(release.checksums, sums, 1024 * 1024, { _ in })
                 guard checksumStatus == 200 else { throw serverError(checksumStatus) }
                 let checksum = try ReleaseUpdate.checksum(String(contentsOf: sums, encoding: .utf8), filename: release.filename)
-                let downloadStatus = try await UpdateDownload(limit: release.size, progress: { [weak self] value in
+                let downloadStatus = try await fetch(release.archive, zip, release.size, { [weak self] value in
                     Task { @MainActor in self?.progress = value }
-                }).fetch(release.archive, to: zip)
+                })
                 guard downloadStatus == 200 else { throw serverError(downloadStatus) }
                 status = L10n.tr("Verifying update…")
                 let worker = Task.detached(priority: .utility) {
@@ -91,44 +118,96 @@ final class AppUpdater: ObservableObject {
         guard target.pathExtension == "app", !target.path.hasPrefix("/Volumes/") else {
             status = L10n.tr("Move Bozhou to a writable Applications folder before updating"); return
         }
-        busy = true; status = L10n.tr("Preparing installation…")
+        busy = true; installing = true; status = L10n.tr("Preparing installation…")
         let language = model.settings.language.rawValue
         task = Task {
-            defer { busy = false; task = nil }
+            defer { task = nil }
             var staging: URL?
             do {
                 let worker = Task.detached(priority: .utility) { () throws -> URL in
                     let fm = FileManager.default
+                    try Task.checkCancellation()
                     try UpdateArchive.verifyApp(target)
                     let directory = target.deletingLastPathComponent().appendingPathComponent(".bozhou-update-" + UUID().uuidString)
                     try fm.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
                     do {
                         let app = directory.appendingPathComponent("泊舟.app")
+                        try Task.checkCancellation()
                         try fm.copyItem(at: ready, to: app)
                         try UpdateArchive.verifyApp(app, version: release.version.description)
                         let helper = directory.appendingPathComponent("BozhouUpdater")
                         try fm.copyItem(at: target.appendingPathComponent("Contents/MacOS/BozhouUpdater"), to: helper)
                         try fm.copyItem(at: target.appendingPathComponent("Contents/Resources/Bozhou_BozhouCore.bundle"),
                                         to: directory.appendingPathComponent("Bozhou_BozhouCore.bundle"))
+                        try Task.checkCancellation()
                         return directory
                     } catch { try? fm.removeItem(at: directory); throw error }
                 }
-                let folder = try await worker.value; staging = folder
+                let folder = try await withTaskCancellationHandler(operation: { try await worker.value },
+                                                                    onCancel: { worker.cancel() })
+                staging = folder
                 try Task.checkCancellation()
-                let helper = Process()
-                helper.executableURL = folder.appendingPathComponent("BozhouUpdater")
-                helper.arguments = [String(ProcessInfo.processInfo.processIdentifier), target.path, release.version.description, language]
-                helper.standardInput = FileHandle.nullDevice; helper.standardOutput = FileHandle.nullDevice; helper.standardError = FileHandle.nullDevice
-                try helper.run()
-                discardDownload()
-                model.closeAll()
-                NSApp.terminate(nil)
+                pendingInstallation = Installation(directory: folder, version: release.version.description, language: language)
+                status = L10n.tr("Closing the update window…")
+                // SwiftUI's onDismiss may precede AppKit's sheet teardown. Observe the
+                // native completion before requesting dismissal, then recheck the windows.
+                dismissalObserver = NotificationCenter.default.addObserver(forName: NSWindow.didEndSheetNotification,
+                                                                           object: nil, queue: .main) { [weak self, weak model] _ in
+                    DispatchQueue.main.async {
+                        guard let self, let model else { return }
+                        self.presentationDidDismiss(model: model)
+                    }
+                }
+                dismissalTimeout = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                    guard let self, let pending = pendingInstallation else { return }
+                    pendingInstallation = nil; stopWaitingForDismissal()
+                    try? FileManager.default.removeItem(at: pending.directory)
+                    busy = false; installing = false
+                    status = L10n.tr("Could not install the update: \(L10n.tr("Close any open dialogs and try installing the update again."))")
+                    presented = true
+                }
+                if presented { presented = false }
+                else { presentationDidDismiss(model: model) }
             } catch {
                 if let staging { try? FileManager.default.removeItem(at: staging) }
+                busy = false; installing = false
                 status = Task.isCancelled ? L10n.tr("Update cancelled") : L10n.tr("Could not install the update: \(error.localizedDescription)")
             }
         }
     }
+    func presentationDidDismiss(model: AppModel) {
+        guard !presented, let installation = pendingInstallation,
+              NSApp.modalWindow == nil, NSApp.windows.allSatisfy({ $0.sheets.isEmpty }) else { return }
+        pendingInstallation = nil
+        stopWaitingForDismissal()
+        let helper = Process()
+        do {
+            let target = Bundle.main.bundleURL.standardizedFileURL.resolvingSymlinksInPath()
+            helper.executableURL = installation.directory.appendingPathComponent("BozhouUpdater")
+            helper.arguments = [String(ProcessInfo.processInfo.processIdentifier), target.path, installation.version, installation.language]
+            helper.standardInput = FileHandle.nullDevice; helper.standardOutput = FileHandle.nullDevice; helper.standardError = FileHandle.nullDevice
+            try helper.run()
+            status = L10n.tr("Restarting to install the update…")
+            model.closeAll()
+            NSApp.terminate(nil)
+            // Successful termination exits this process. A refused quit must not leave
+            // a helper waiting to replace the app during a later, unrelated shutdown.
+            throw BozhouError.invalid(L10n.tr("Bozhou did not quit. Try installing the update again."))
+        } catch {
+            if helper.isRunning { helper.terminate() }
+            try? FileManager.default.removeItem(at: installation.directory)
+            busy = false; installing = false
+            status = L10n.tr("Could not install the update: \(error.localizedDescription)")
+            presented = true
+        }
+    }
+    private func stopWaitingForDismissal() {
+        dismissalTimeout?.cancel(); dismissalTimeout = nil
+        if let dismissalObserver { NotificationCenter.default.removeObserver(dismissalObserver) }
+        dismissalObserver = nil
+    }
+    func applicationWillTerminate() { discardDownload() }
     private func discardDownload() {
         if let directory = downloadDirectory { try? FileManager.default.removeItem(at: directory) }
         downloadDirectory = nil; ready = nil
@@ -165,7 +244,9 @@ struct UpdatePresentation: View {
     @EnvironmentObject var model: AppModel
     @State private var confirm = false
     var body: some View {
-        Color.clear.frame(width: 0, height: 0).sheet(isPresented: $updater.presented) {
+        Color.clear.frame(width: 0, height: 0).sheet(isPresented: $updater.presented, onDismiss: {
+            updater.presentationDidDismiss(model: model)
+        }) {
             VStack(alignment: .leading, spacing: 16) {
                 Text(L10n.tr("Software Update")).font(.title2.weight(.semibold))
                 Text(L10n.tr("Installed version: \(updater.currentVersion)")).font(.caption).foregroundStyle(.secondary)
@@ -177,6 +258,7 @@ struct UpdatePresentation: View {
                 if updater.busy { ProgressView(value: updater.progress) }
                 HStack {
                     Button(L10n.tr("Close")) { updater.presented = false }.keyboardShortcut(.cancelAction)
+                        .disabled(updater.installing)
                     Spacer()
                     if updater.busy { Button(L10n.tr("Cancel")) { updater.cancel() } }
                     else if updater.ready != nil {
@@ -186,6 +268,7 @@ struct UpdatePresentation: View {
                     } else { Button(L10n.tr("Check Again")) { updater.check() } }
                 }
             }.padding(26).frame(width: 540)
+                .interactiveDismissDisabled(updater.installing)
                 .alert(L10n.tr("Install Update and Restart?"), isPresented: $confirm) {
                     Button(L10n.tr("Cancel"), role: .cancel) {}
                     Button(L10n.tr("Install and Restart")) { updater.install(model: model) }

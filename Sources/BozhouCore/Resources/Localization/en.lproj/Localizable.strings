@@ -515,6 +515,9 @@
 "Update verified. Ready to install." = "Update verified. Ready to install.";
 "Move Bozhou to a writable Applications folder before updating" = "Move Bozhou to a writable Applications folder before updating";
 "Preparing installation…" = "Preparing installation…";
+"Closing the update window…" = "Closing the update window…";
+"Restarting to install the update…" = "Restarting to install the update…";
+"Close any open dialogs and try installing the update again." = "Close any open dialogs and try installing the update again.";
 "Could not install the update: {0}" = "Could not install the update: {0}";
 "GitHub rate limit reached. Try again later." = "GitHub rate limit reached. Try again later.";
 "GitHub update request failed (HTTP {0})" = "GitHub update request failed (HTTP {0})";

@@ -15,7 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: L10n.tr("Quit")); alert.addButton(withTitle: L10n.tr("Cancel"))
         return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
     }
-    func applicationWillTerminate(_ notification: Notification) { model?.closeAll() }
+    func applicationWillTerminate(_ notification: Notification) {
+        model?.updater.applicationWillTerminate()
+        model?.closeAll()
+    }
 }
 
 @main
